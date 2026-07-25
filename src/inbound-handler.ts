@@ -886,6 +886,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         handleMessage: handleDingTalkMessage,
         downloadMedia,
         log,
+        inboundQueueEligible: params.inboundQueueEligible,
       });
       return;
     }
@@ -920,6 +921,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         handleMessage: handleDingTalkMessage,
         downloadMedia,
         log,
+        inboundQueueEligible: params.inboundQueueEligible,
       });
       return;
     }

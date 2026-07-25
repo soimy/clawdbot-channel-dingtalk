@@ -531,4 +531,100 @@ describe("dispatchSubAgents", () => {
       }),
     );
   });
+
+  it("propagates inboundQueueEligible=true to each recursive sub-agent handler", async () => {
+    // Round-2 review on PR #592: the previous dispatchSubAgents recursive
+    // call did not carry inboundQueueEligible, so @子Agent messages never
+    // entered the handler-owned queue on the sub-agent's own session key
+    // and still hit reply-session conflicts when the sub-agent was busy.
+    // Verify the flag now reaches every recursive handleMessage invocation.
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+
+    await dispatchSubAgents({
+      matchedAgents: [
+        { agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" },
+        { agentId: "agent-beta", matchedName: "Beta助手", matchSource: "name" },
+      ],
+      cfg,
+      accountId: "main",
+      data: {
+        msgtype: "text",
+        text: { content: "@Alpha助手 @Beta助手 hi" },
+        conversationType: "1",
+        conversationId: "cid_dm_propagation",
+        senderId: "user-001",
+        chatbotUserId: "bot-001",
+        msgId: "msg-propagate",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      extractedContent: {
+        text: "@Alpha助手 @Beta助手 hi",
+        messageType: "text",
+      },
+      sessionPeer: { kind: "direct", peerId: "user-001" },
+      handleMessage,
+      downloadMedia: vi.fn().mockResolvedValue(null),
+      log,
+      inboundQueueEligible: true,
+    });
+
+    expect(handleMessage).toHaveBeenCalledTimes(2);
+    for (const call of handleMessage.mock.calls) {
+      expect(call[0].inboundQueueEligible).toBe(true);
+      // Recursive handlers must start with the queue-handled guard unset;
+      // the first handler pass performs access control and route resolution
+      // before re-entering the queued continuation with this flag true.
+      expect(call[0].inboundQueueHandled).toBeFalsy();
+    }
+    // Each recursive handler must also carry its own resolved sub-agent
+    // route, so the queue (when entered) serializes on the per-agent
+    // sessionKey instead of the parent conversation key.
+    expect(handleMessage.mock.calls[0]?.[0]).toMatchObject({
+      routeOverride: { agentId: "agent-alpha", sessionKey: "session-agent-alpha" },
+    });
+    expect(handleMessage.mock.calls[1]?.[0]).toMatchObject({
+      routeOverride: { agentId: "agent-beta", sessionKey: "session-agent-beta" },
+    });
+  });
+
+  it("preserves legacy default (inboundQueueEligible omitted) for synthetic callers", async () => {
+    // Synthetic callers (e.g. ask-user reinjection) do not opt into the
+    // handler-owned queue. dispatchSubAgents must not silently flip the
+    // flag on for them.
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+
+    await dispatchSubAgents({
+      matchedAgents: [{ agentId: "agent-alpha", matchedName: "Alpha助手", matchSource: "name" }],
+      cfg,
+      accountId: "main",
+      data: {
+        msgtype: "text",
+        text: { content: "@Alpha助手 hi" },
+        conversationType: "1",
+        conversationId: "cid_dm_legacy",
+        senderId: "user-001",
+        chatbotUserId: "bot-001",
+        msgId: "msg-legacy",
+        createAt: Date.now(),
+      } as DingTalkInboundMessage,
+      dingtalkConfig,
+      sessionWebhook: "https://session.webhook",
+      extractedContent: {
+        text: "@Alpha助手 hi",
+        messageType: "text",
+      },
+      sessionPeer: { kind: "direct", peerId: "user-001" },
+      handleMessage,
+      downloadMedia: vi.fn().mockResolvedValue(null),
+      log,
+      // inboundQueueEligible intentionally omitted
+    });
+
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+    expect(handleMessage.mock.calls[0]?.[0]).toMatchObject({
+      inboundQueueEligible: undefined,
+    });
+  });
 });

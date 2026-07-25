@@ -108,7 +108,16 @@ function instrumentConnectionStages(client: DWClient): void {
   };
 }
 
-const INFLIGHT_TTL_MS = 5 * 60 * 1000;
+// In-flight dedup keys are released ONLY by the `finally` block after
+// `handleDingTalkMessage` settles. There is intentionally NO time-based TTL:
+// the inbound session queue may hold a message for up to
+// `MAX_INBOUND_SESSION_QUEUE_WAIT_MS` (15 minutes), which is longer than the
+// previous 5-minute TTL. Releasing the lock by wall clock while the queued
+// message is still pending let DingTalk retries enter a SECOND in-flight
+// record, and both copies eventually executed — duplicating external side
+// effects. A hung handler now permanently holds its msgId (acceptable: the
+// user-visible symptom is "this message isn't being processed" and recovery
+// is a process restart, not silent duplicate execution).
 const processingDedupKeys = new Map<string, number>();
 export const CHANNEL_INFLIGHT_NAMESPACE_POLICY = "memory-only" as const;
 const inboundCountersByAccount = new Map<
@@ -300,22 +309,17 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               return;
             }
 
-            const inflightSince = processingDedupKeys.get(dedupKey);
-            if (inflightSince !== undefined) {
-              if (Date.now() - inflightSince > INFLIGHT_TTL_MS) {
-                pluginLog?.warn?.(
-                  `[${account.accountId}] Releasing stale in-flight lock for ${dedupKey} (held ${Date.now() - inflightSince}ms > TTL ${INFLIGHT_TTL_MS}ms)`,
-                );
-                processingDedupKeys.delete(dedupKey);
-              } else {
-                pluginLog?.debug?.(
-                  `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
-                );
-                stats.inflightSkipped += 1;
-                acknowledge();
-                logInboundCounters(pluginLog, account.accountId, "inflight-skipped");
-                return;
-              }
+            // In-flight lock: only the `finally` block below ever releases
+            // this key. See `processingDedupKeys` declaration for why we no
+            // longer release by time-based TTL.
+            if (processingDedupKeys.has(dedupKey)) {
+              pluginLog?.debug?.(
+                `[${account.accountId}] Skipping in-flight duplicate message: ${dedupKey}`,
+              );
+              stats.inflightSkipped += 1;
+              acknowledge();
+              logInboundCounters(pluginLog, account.accountId, "inflight-skipped");
+              return;
             }
 
             acknowledge();
@@ -574,19 +578,13 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               lastError: null,
             });
           } else if (state === ConnectionState.FAILED || state === ConnectionState.DISCONNECTED) {
-            const robotKey = resolveRobotCode(config) || account.accountId;
-            let cleared = 0;
-            for (const key of processingDedupKeys.keys()) {
-              if (key.startsWith(`${robotKey}:`)) {
-                processingDedupKeys.delete(key);
-                cleared++;
-              }
-            }
-            if (cleared > 0) {
-              pluginLog?.info?.(
-                `[${account.accountId}] Cleared ${cleared} stale in-flight lock(s) on disconnect`,
-              );
-            }
+            // Intentionally do NOT clear `processingDedupKeys` here: a stream
+            // disconnect must not release in-flight locks for messages whose
+            // handler is still executing (or queued behind an active run),
+            // because DingTalk will resend on reconnect and a cleared lock
+            // would let the resend enter a SECOND handler invocation —
+            // duplicating external side effects. Only `finally` after the
+            // handler settles releases a key.
             applyStatusPatch({
               running: false,
               connected: false,

@@ -297,7 +297,7 @@ describe("gateway inbound callback pipeline", () => {
     });
   });
 
-  it("releases stale in-flight lock after ttl and allows reprocessing", async () => {
+  it("does NOT release in-flight lock by wall-clock ttl (queue wait > old ttl must not duplicate)", async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
@@ -332,7 +332,11 @@ describe("gateway inbound callback pipeline", () => {
       });
       await Promise.resolve();
 
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+      // Advance well past the historical 5-minute TTL — and even past the
+      // 15-minute max queue wait. The handler has not settled (resolveFirst
+      // has not been called), so the in-flight lock MUST remain held and a
+      // DingTalk retry arriving now must be skipped, not reprocessed.
+      await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
 
       const second = shared.listeners.TOPIC_ROBOT?.({
         headers: { messageId: "stream_msg_stale_2" },
@@ -340,26 +344,30 @@ describe("gateway inbound callback pipeline", () => {
       });
 
       await Promise.resolve();
-      // The gateway owns only transport deduplication. Once its stale message
-      // lock expires, both events enter the handler; the handler-owned queue
-      // serializes them only after authorization and trusted route resolution.
-      expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(2);
+      // The handler-owned queue can hold a message for up to 15 minutes; the
+      // old 5-minute gateway TTL would have released this lock and let the
+      // resend enter a SECOND handler invocation. The lock is now released
+      // only by the handler's `finally`, so the duplicate is dropped.
+      expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
       expect(shared.handleDingTalkMessageMock).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ inboundOrigin: "stream", inboundQueueEligible: true }),
       );
-      expect(shared.handleDingTalkMessageMock).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({ inboundOrigin: "stream", inboundQueueEligible: true }),
+      expect(ctx.log.debug).toHaveBeenCalledWith(
+        expect.stringContaining("Skipping in-flight duplicate message"),
       );
+      expect(ctx.log.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Releasing stale in-flight lock"),
+      );
+
       resolveFirst?.();
       await first;
       await second;
 
-      expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(2);
-      expect(ctx.log.warn).toHaveBeenCalledWith(
-        expect.stringContaining("Releasing stale in-flight lock"),
-      );
+      // Still only one handler invocation: the duplicate never escaped the
+      // gateway's in-flight guard.
+      expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+      expect(shared.markMessageProcessedMock).toHaveBeenCalledWith("ding_id:msg_stale");
     } finally {
       vi.useRealTimers();
     }
@@ -392,7 +400,7 @@ describe("gateway inbound callback pipeline", () => {
     });
   });
 
-  it("clears account in-flight locks on disconnect state change", async () => {
+  it("does NOT clear in-flight locks on disconnect (resend after reconnect must skip, not duplicate)", async () => {
     shared.isMessageProcessedMock.mockReturnValue(false);
     let resolveFirst: (() => void) | undefined;
     shared.handleDingTalkMessageMock
@@ -431,18 +439,21 @@ describe("gateway inbound callback pipeline", () => {
       data: payloadData,
     });
 
-    // Disconnect clears the gateway-level duplicate lock, but it must not
-    // break per-conversation ordering. The resend is retained by the real
-    // session queue and begins automatically once the original active run
-    // settles (rather than racing it into a reply-session conflict).
+    // The handler has not settled, so the in-flight lock must remain held
+    // across the disconnect; DingTalk will resend after reconnect and a
+    // cleared lock would let the resend enter a SECOND handler invocation.
+    // Only `finally` after the handler settles releases a key.
     resolveFirst?.();
     await first;
     await second;
 
     await Promise.resolve();
-    expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(2);
-    expect(ctx.log.info).toHaveBeenCalledWith(
-      expect.stringContaining("Cleared 1 stale in-flight lock"),
+    expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+    expect(ctx.log.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("Cleared"),
+    );
+    expect(ctx.log.debug).toHaveBeenCalledWith(
+      expect.stringContaining("Skipping in-flight duplicate message"),
     );
   });
 

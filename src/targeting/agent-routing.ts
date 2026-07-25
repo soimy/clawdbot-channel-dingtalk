@@ -214,6 +214,15 @@ export async function dispatchSubAgents(params: {
     log?: Logger,
   ) => Promise<{ path: string; mimeType: string } | null>;
   log?: Logger;
+  /**
+   * Whether the recursive sub-agent handler invocations should participate in
+   * the handler-owned inbound session queue. Propagated from the parent
+   * handler's `inboundQueueEligible` so `@子Agent` messages reuse the same
+   * serialization path and avoid reply-session conflicts on the sub-agent's
+   * own `target.route.sessionKey`. Default false preserves the legacy
+   * direct-dispatch behavior for synthetic callers that did not opt in.
+   */
+  inboundQueueEligible?: boolean;
 }): Promise<void> {
   const {
     matchedAgents,
@@ -229,6 +238,7 @@ export async function dispatchSubAgents(params: {
     handleMessage,
     downloadMedia: download,
     log,
+    inboundQueueEligible,
   } = params;
 
   let helperMissingWarningSent = false;
@@ -337,6 +347,13 @@ export async function dispatchSubAgents(params: {
           commandText,
         },
         preDownloadedMedia,
+        // Propagate queue eligibility so each recursive sub-agent handler
+        // enters the handler-owned queue on its own `target.route.sessionKey`
+        // instead of bypassing it (which previously left @子Agent messages
+        // exposed to reply-session conflicts when the sub-agent session was
+        // already busy). Synthetic callers without this flag keep the legacy
+        // direct-dispatch behavior.
+        inboundQueueEligible,
       });
     } catch (error) {
       const message = getErrorMessage(error);
