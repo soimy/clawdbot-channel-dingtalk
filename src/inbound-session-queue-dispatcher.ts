@@ -1,16 +1,17 @@
-// Gateway-level inbound serializer: wraps the gateway's call to
-// `handleDingTalkMessage` with the per-conversation promise-chain queue from
+// Authorized inbound serializer: wraps the already-authorized, route-resolved
+// portion of `handleDingTalkMessage` with the promise-chain queue from
 // `inbound-session-queue.ts`.
 //
-// Why this lives in the gateway (not in handleDingTalkMessage): the queue
-// serializes same-conversation inbound so a message that arrives while another
-// is still being processed is QUEUED and auto-reprocessed once the active run
-// finishes — instead of racing into the core's
+// The gateway intentionally does not call this module.  At the gateway boundary
+// we only have raw accountId + conversationId, before DM/group policy, allowlist
+// checks, special-command bypasses, and trusted agent routing.  Queueing there
+// could acknowledge an unauthorized sender or block /stop and /btw.  The caller
+// supplies the resolved route.sessionKey only after those decisions, so a message
+// that arrives while the same real session is active is queued and reprocessed
+// once the active run finishes instead of racing into the core's
 //   "reply session initialization conflicted for <sessionKey>"
 // and being dropped silently at the gateway catch block (the
-// "钉钉'确认'消息无响应" regression). Direct callers of handleDingTalkMessage
-// (ask-user reinjections, unit tests) bypass this queue on purpose: ask-user
-// happens inside an already-active run, and tests drive the handler directly.
+// "钉钉'确认'消息无响应" regression.
 //
 // While a message is queued, a pre-created AI Card shows an immediate
 // "已排队" acknowledgement; the handler later reuses that same card
@@ -20,8 +21,6 @@
 // orchestrator, adapted to soimy's blocking gateway contract (we await each
 // task so the gateway's per-message dedup stays correct).
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
-import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import {
   createAICard,
@@ -31,7 +30,6 @@ import {
 } from "./card-service";
 import {
   chainInboundSessionTask,
-  deriveInboundQueueKey,
   getInboundSessionQueueDepth,
   InboundSessionQueueWaitTimeoutError,
   isInboundSessionQueueBusy,
@@ -39,46 +37,31 @@ import {
   MAX_INBOUND_SESSION_QUEUE_WAIT_MS,
   pickQueueBusyAckPhrase,
 } from "./inbound-session-queue";
-import { extractMessageContent } from "./message-utils";
-import { getDingTalkRuntime } from "./runtime";
 import { sendMessage } from "./send-service";
 import type { AICardInstance, DingTalkConfig, DingTalkInboundMessage, Logger } from "./types";
 
 export interface InboundQueueDispatchInput {
-  cfg: OpenClawConfig;
   accountId: string;
   data: DingTalkInboundMessage;
   dingtalkConfig: DingTalkConfig;
+  /** Trusted route.sessionKey, resolved after access control. */
+  sessionKey: string;
+  /** Resolved DingTalk reply target for this authorized route. */
+  to: string;
+  storePath?: string;
+  quoteContent?: string;
   log?: Logger;
 }
 
 const QUEUE_FULL_ACK = "当前消息较多，已达到本会话排队上限；请等待上一轮完成后再发送。";
 const QUEUE_WAIT_TIMEOUT_ACK = "上一轮处理时间较长，这条消息未执行；请稍后重新发送。";
-const QUEUE_DUPLICATE_ACK = "这条相同消息已经在处理中或队列中，无需重复发送。";
+const QUEUE_HANDLER_FAILURE_ACK = "本次处理异常，未能完成；请稍后重新发送。";
 const MIN_QUEUE_ACK_CARD_VISIBLE_MS = 750;
 
-// DingTalk retries keep the same msgId and are already handled by gateway dedup.
-// This set handles a user manually resending the same meaningful text with a new
-// msgId while its earlier copy is still active or queued.
-const activeMessageFingerprints = new Map<string, string>();
 const queuedAckVisibleAt = new WeakMap<AICardInstance, number>();
 
-function resolveManualResendFingerprint(
-  input: InboundQueueDispatchInput,
-  queueKey: string,
-): { contentKey: string; msgId: string } | undefined {
-  const text = extractMessageContent(input.data)?.text?.trim().replace(/\s+/g, " ");
-  const msgId = input.data?.msgId?.trim();
-  return text && msgId ? { contentKey: `${queueKey}\u0000${text}`, msgId } : undefined;
-}
-
 function shouldPrepareQueueAckCard(input: InboundQueueDispatchInput): boolean {
-  if (input.dingtalkConfig.messageType !== "card") {
-    return false;
-  }
-  const text = extractMessageContent(input.data)?.text || "";
-  // These paths deliberately do not consume the normal reply card.
-  return !isBtwRequestText(text) && !isAbortRequestText(text);
+  return input.dingtalkConfig.messageType === "card";
 }
 
 async function keepQueueAckCardVisible(card: AICardInstance): Promise<void> {
@@ -112,6 +95,21 @@ async function settleUnusedQueueAckCard(
 }
 
 /**
+ * A visible queue ACK promises that the message will be handled.  If the
+ * queued continuation fails before consuming that card, finish it with a
+ * retryable outcome instead of recalling the only user-visible feedback.
+ */
+async function settleFailedQueueAckCard(
+  input: InboundQueueDispatchInput,
+  card: AICardInstance,
+): Promise<void> {
+  if (isCardInTerminalState(card.state)) {
+    return;
+  }
+  await sendQueueTerminalAck(input, QUEUE_HANDLER_FAILURE_ACK, card);
+}
+
+/**
  * Serialize an inbound message per conversation, then invoke `handler` (which
  * should call `handleDingTalkMessage` with the provided `preCreatedCard`).
  *
@@ -123,34 +121,19 @@ export async function dispatchInboundViaSessionQueue<T>(
   input: InboundQueueDispatchInput,
   handler: (preCreatedCard?: AICardInstance) => Promise<T>,
 ): Promise<T> {
-  const queueKey = deriveInboundQueueKey({
-    accountId: input.accountId,
-    conversationId: input.data?.conversationId,
-  });
+  const queueKey = input.sessionKey;
   if (!queueKey) {
-    // No stable conversation identity → cannot queue; run directly.
+    // A trusted route must include a session key. Keep this defensive fallback
+    // for alternate callers rather than inventing a raw gateway-level key.
     return handler(undefined);
   }
   const wasBusy = isInboundSessionQueueBusy(queueKey);
-  const fingerprint = resolveManualResendFingerprint(input, queueKey);
-  if (
-    wasBusy &&
-    fingerprint &&
-    activeMessageFingerprints.get(fingerprint.contentKey) !== undefined &&
-    activeMessageFingerprints.get(fingerprint.contentKey) !== fingerprint.msgId
-  ) {
-    await sendQueueTerminalAck(input, QUEUE_DUPLICATE_ACK);
-    return undefined as T;
-  }
   if (getInboundSessionQueueDepth(queueKey) >= MAX_INBOUND_SESSION_QUEUE_DEPTH) {
     await sendQueueTerminalAck(input, QUEUE_FULL_ACK);
     return undefined as T;
   }
   // Detect busyness BEFORE chaining: this call is "busy" only if a PRIOR task
   // for this conversation is still running.
-  if (fingerprint) {
-    activeMessageFingerprints.set(fingerprint.contentKey, fingerprint.msgId);
-  }
   // Start preparing a busy ACK without awaiting it before we reserve a queue
   // slot below. Otherwise a burst of inbound messages can all observe the
   // same pre-await depth and each pass the cap check.
@@ -177,10 +160,17 @@ export async function dispatchInboundViaSessionQueue<T>(
           return handler(undefined);
         }
         await keepQueueAckCardVisible(preCreatedCard);
+        let handlerFailed = false;
         try {
           return await handler(preCreatedCard);
+        } catch (err: unknown) {
+          handlerFailed = true;
+          await settleFailedQueueAckCard(input, preCreatedCard);
+          throw err;
         } finally {
-          await settleUnusedQueueAckCard(input, preCreatedCard);
+          if (!handlerFailed && !isCardInTerminalState(preCreatedCard.state)) {
+            await settleUnusedQueueAckCard(input, preCreatedCard);
+          }
         }
       },
       {
@@ -198,10 +188,6 @@ export async function dispatchInboundViaSessionQueue<T>(
       return undefined as T;
     }
     throw err;
-  } finally {
-    if (fingerprint && activeMessageFingerprints.get(fingerprint.contentKey) === fingerprint.msgId) {
-      activeMessageFingerprints.delete(fingerprint.contentKey);
-    }
   }
 }
 
@@ -215,32 +201,18 @@ async function tryPrepareQueueAckCard(
   input: InboundQueueDispatchInput,
   ack: () => { content: string; finished: boolean },
 ): Promise<AICardInstance | undefined> {
-  const { dingtalkConfig, data, log } = input;
+  const { dingtalkConfig, data, log, to, storePath, quoteContent } = input;
   if (!data) {
     return undefined;
   }
-  const isDirect = data.conversationType === "1";
-  const to = isDirect
-    ? (data.senderStaffId || data.senderId || "").trim()
-    : (data.conversationId || "").trim();
   if (!to) {
     return undefined;
   }
   try {
-    let storePath: string | undefined;
-    try {
-      const rt = getDingTalkRuntime();
-      storePath = rt.channel.session.resolveStorePath(input.cfg?.session?.store, {
-        agentId: input.accountId,
-      });
-    } catch {
-      // resolveStorePath is best-effort for ACK card persistence.
-    }
-    const quoteText = (extractMessageContent(data)?.text || "").slice(0, 200);
     const card = await createAICard(dingtalkConfig, to, log, {
       accountId: input.accountId,
       storePath,
-      quoteContent: quoteText,
+      quoteContent,
     });
     if (!card) {
       return undefined;
@@ -264,7 +236,7 @@ async function tryPrepareQueueAckCard(
       );
     });
     log?.info?.(
-      `[DingTalk] Inbound message queued behind active run for conversation=${data.conversationId}; pre-created ACK card outTrackId=${card.cardInstanceId}.`,
+      `[DingTalk] Inbound message queued behind active run for session=${input.sessionKey}; pre-created ACK card outTrackId=${card.cardInstanceId}.`,
     );
     return card;
   } catch (err: unknown) {
@@ -280,7 +252,7 @@ async function sendQueueTerminalAck(
   content: string,
   preCreatedCard?: AICardInstance,
 ): Promise<void> {
-  const { dingtalkConfig, data, log } = input;
+  const { dingtalkConfig, data, log, to, storePath } = input;
   try {
     if (preCreatedCard) {
       await streamAICard(preCreatedCard, content, true, log);
@@ -290,10 +262,6 @@ async function sendQueueTerminalAck(
     if (card) {
       return;
     }
-    const isDirect = data.conversationType === "1";
-    const to = isDirect
-      ? (data.senderStaffId || data.senderId || "").trim()
-      : (data.conversationId || "").trim();
     if (!to) {
       return;
     }
@@ -301,6 +269,7 @@ async function sendQueueTerminalAck(
       sessionWebhook: data.sessionWebhook,
       log,
       accountId: input.accountId,
+      storePath,
       conversationId: data.conversationId,
     });
     if (!result.ok) {

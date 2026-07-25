@@ -37,6 +37,7 @@ const shared = vi.hoisted(() => ({
   getUnionIdByStaffIdMock: vi.fn(),
   resolveQuotedFileMock: vi.fn(),
   sendProactiveMediaMock: vi.fn(),
+  deliverBtwReplyMock: vi.fn(),
 }));
 
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
@@ -45,7 +46,7 @@ vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
 }));
 
 vi.mock("../../src/messaging/btw-deliver", () => ({
-  deliverBtwReply: vi.fn(),
+  deliverBtwReply: shared.deliverBtwReplyMock,
   stripLeadingMentions: (text: string) => text.replace(/^(?:@\S+\s+)*/u, ""),
   buildBtwBlockquote: vi.fn(),
 }));
@@ -171,6 +172,8 @@ function buildMessage(text: string, msgId: string) {
   return {
     cfg: {},
     accountId: "main",
+    inboundOrigin: "stream",
+    inboundQueueEligible: true,
     sessionWebhook: `https://session.webhook/${msgId}`,
     log: undefined,
     dingtalkConfig: { dmPolicy: "open", clientId: "robot_x", messageType: "card" } as any,
@@ -189,19 +192,23 @@ function buildMessage(text: string, msgId: string) {
   } as any;
 }
 
-// Mirrors how the gateway invokes a message: the queue dispatcher wraps the
-// real handleDingTalkMessage and threads the optional preCreatedCard through.
+// Real stream messages now enter the queue inside handleDingTalkMessage, after
+// access control and route.sessionKey resolution. Gateway only invokes handler.
 function dispatch(msg: any): Promise<void> {
-  return dispatchInboundViaSessionQueue(
-    {
-      cfg: msg.cfg,
-      accountId: msg.accountId,
-      data: msg.data,
-      dingtalkConfig: msg.dingtalkConfig,
-      log: msg.log,
-    },
-    (preCreatedCard) => handleDingTalkMessage({ ...msg, preCreatedCard }),
-  );
+  return handleDingTalkMessage(msg);
+}
+
+function queueInput(msg: any) {
+  return {
+    accountId: msg.accountId,
+    data: msg.data,
+    dingtalkConfig: msg.dingtalkConfig,
+    sessionKey: SESSION_KEY,
+    to: msg.data.senderId,
+    storePath: STORE_PATH,
+    quoteContent: msg.data.text.content,
+    log: msg.log,
+  };
 }
 
 describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
@@ -241,6 +248,8 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     shared.resolveQuotedFileMock.mockReset();
     shared.resolveQuotedFileMock.mockResolvedValue(null);
     shared.sendProactiveMediaMock.mockReset();
+    shared.deliverBtwReplyMock.mockReset();
+    shared.deliverBtwReplyMock.mockResolvedValue(undefined);
     shared.getRuntimeMock.mockReturnValue(buildRuntime());
     resetProactivePermissionHintStateForTest();
     clearCardRunRegistryForTest();
@@ -412,18 +421,13 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     const activeGate = new Promise<void>((resolve) => {
       releaseActive = resolve;
     });
-    const queued = [chainInboundSessionTask("main:cid_queue_1", () => activeGate)];
+    const queued = [chainInboundSessionTask(SESSION_KEY, () => activeGate)];
     for (let index = 1; index < MAX_INBOUND_SESSION_QUEUE_DEPTH; index += 1) {
-      queued.push(chainInboundSessionTask("main:cid_queue_1", async () => undefined));
+      queued.push(chainInboundSessionTask(SESSION_KEY, async () => undefined));
     }
     const rejectedHandler = vi.fn(async () => undefined);
     await dispatchInboundViaSessionQueue(
-      {
-        cfg: {},
-        accountId: "main",
-        data: buildMessage("确认", "msg_queue_full").data,
-        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-      },
+      queueInput(buildMessage("确认", "msg_queue_full")),
       rejectedHandler,
     );
 
@@ -448,12 +452,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       resolveActiveStarted = resolve;
     });
     const active = dispatchInboundViaSessionQueue(
-      {
-        cfg: {},
-        accountId: "main",
-        data: buildMessage("查询A", "msg_burst_active").data,
-        dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-      },
+      queueInput(buildMessage("查询A", "msg_burst_active")),
       async () => {
         resolveActiveStarted();
         await activeGate;
@@ -467,12 +466,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     const overflowHandlers = [vi.fn(async () => undefined), vi.fn(async () => undefined)];
     const burst = [...admittedHandlers, ...overflowHandlers].map((handler, index) =>
       dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("确认", `msg_burst_${index}`).data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
+        queueInput(buildMessage("确认", `msg_burst_${index}`)),
         handler,
       ),
     );
@@ -489,7 +483,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
     expect(overflowHandlers.every((handler) => handler.mock.calls.length === 0)).toBe(true);
   });
 
-    it("does not enqueue a manual resend of the same text while its first copy is active", async () => {
+    it("does not discard a manual resend with the same text while its first copy is active", async () => {
       shared.createAICardMock.mockResolvedValue(null);
       shared.extractMessageContentMock.mockImplementation((data: any) => ({
         text: data?.text?.content,
@@ -504,12 +498,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
         resolveFirstStarted = resolve;
       });
       const first = dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("确认", "msg_duplicate_first").data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
+        queueInput(buildMessage("确认", "msg_duplicate_first")),
         async () => {
           resolveFirstStarted();
           await firstGate;
@@ -518,68 +507,104 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       await firstStarted;
 
       const duplicateHandler = vi.fn(async () => undefined);
-      await dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("确认", "msg_duplicate_resend").data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
+      const second = dispatchInboundViaSessionQueue(
+        queueInput(buildMessage("确认", "msg_duplicate_resend")),
         duplicateHandler,
       );
-
+      await Promise.resolve();
       expect(duplicateHandler).not.toHaveBeenCalled();
-      expect(shared.sendMessageMock.mock.calls.some((call: any[]) =>
-        String(call[2]).includes("无需重复发送"),
-      )).toBe(true);
       releaseFirst();
-      await first;
+      await Promise.all([first, second]);
+      expect(duplicateHandler).toHaveBeenCalledTimes(1);
     });
 
-    it("does not pre-create a queue ACK card for a /btw bypass", async () => {
+    it("bypasses the authorized queue for /stop while the same session is active", async () => {
       shared.extractMessageContentMock.mockImplementation((data: any) => ({
         text: data?.text?.content,
         messageType: "text",
       }));
-      shared.isBtwRequestTextMock.mockImplementation((text: string) => text === "/btw");
-      let releaseFirst: () => void = () => {};
-      let resolveFirstStarted: () => void = () => {};
-      const firstGate = new Promise<void>((resolve) => {
-        releaseFirst = resolve;
+      shared.isAbortRequestTextMock.mockImplementation((text: string) => text === "/stop");
+      let releaseActive: () => void = () => {};
+      let resolveActiveStarted: () => void = () => {};
+      const activeGate = new Promise<void>((resolve) => {
+        releaseActive = resolve;
       });
-      const firstStarted = new Promise<void>((resolve) => {
-        resolveFirstStarted = resolve;
+      const activeStarted = new Promise<void>((resolve) => {
+        resolveActiveStarted = resolve;
       });
-      const first = dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("查询", "msg_btw_active").data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
-        async () => {
-          resolveFirstStarted();
-          await firstGate;
-        },
-      );
-      await firstStarted;
+      let callCount = 0;
+      shared.dispatchMock.mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 1) {
+          resolveActiveStarted();
+          return activeGate.then(() => ({ queuedFinal: undefined }));
+        }
+        return Promise.resolve({ queuedFinal: undefined });
+      });
 
-      const bypassHandler = vi.fn(async () => undefined);
-      const bypass = dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("/btw", "msg_btw_queued").data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
-        bypassHandler,
-      );
-      await Promise.resolve();
+      const active = dispatch(buildMessage("长任务", "msg_stop_active"));
+      await activeStarted;
+      const stop = dispatch(buildMessage("/stop", "msg_stop_bypass"));
+
+      await vi.waitFor(() => expect(shared.dispatchMock).toHaveBeenCalledTimes(2));
+      releaseActive();
+      await Promise.all([active, stop]);
+    });
+
+    it("bypasses the authorized queue for /btw while the same session is active", async () => {
+      shared.extractMessageContentMock.mockImplementation((data: any) => ({
+        text: data?.text?.content,
+        messageType: "text",
+      }));
+      shared.isBtwRequestTextMock.mockImplementation((text: string) => text === "/btw status");
+      let releaseActive: () => void = () => {};
+      let resolveActiveStarted: () => void = () => {};
+      const activeGate = new Promise<void>((resolve) => {
+        releaseActive = resolve;
+      });
+      const activeStarted = new Promise<void>((resolve) => {
+        resolveActiveStarted = resolve;
+      });
+      let callCount = 0;
+      shared.dispatchMock.mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 1) {
+          resolveActiveStarted();
+          return activeGate.then(() => ({ queuedFinal: undefined }));
+        }
+        return Promise.resolve({ queuedFinal: undefined });
+      });
+
+      const active = dispatch(buildMessage("长任务", "msg_btw_active"));
+      await activeStarted;
+      const sideQuestion = dispatch(buildMessage("/btw status", "msg_btw_bypass"));
+
+      await vi.waitFor(() => expect(shared.dispatchMock).toHaveBeenCalledTimes(2));
+      releaseActive();
+      await Promise.all([active, sideQuestion]);
+    });
+
+    it("does not create a queue acknowledgement for an unauthorized group message", async () => {
+      shared.extractMessageContentMock.mockImplementation((data: any) => ({
+        text: data?.text?.content,
+        messageType: "text",
+      }));
+      const activeGate = new Promise<void>(() => {});
+      void chainInboundSessionTask(SESSION_KEY, () => activeGate);
+      const blocked = buildMessage("确认", "msg_group_blocked");
+      blocked.data.conversationType = "2";
+      blocked.data.conversationId = "cid_blocked_group";
+      blocked.dingtalkConfig = {
+        ...blocked.dingtalkConfig,
+        groupPolicy: "allowlist",
+        groups: {},
+        messageType: "card",
+      };
+
+      await handleDingTalkMessage(blocked);
+
       expect(shared.createAICardMock).not.toHaveBeenCalled();
-
-      releaseFirst();
-      await Promise.all([first, bypass]);
-      expect(bypassHandler).toHaveBeenCalledWith(undefined);
+      expect(shared.sendBySessionMock).toHaveBeenCalledTimes(1);
     });
 
     it("recalls an unused pre-created queue ACK card after a non-card handler returns", async () => {
@@ -605,12 +630,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
         resolveFirstStarted = resolve;
       });
       const first = dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("查询", "msg_unused_active").data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
+        queueInput(buildMessage("查询", "msg_unused_active")),
         async () => {
           resolveFirstStarted();
           await firstGate;
@@ -618,12 +638,7 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       );
       await firstStarted;
       const queued = dispatchInboundViaSessionQueue(
-        {
-          cfg: {},
-          accountId: "main",
-          data: buildMessage("另一个命令", "msg_unused_queued").data,
-          dingtalkConfig: { dmPolicy: "open", messageType: "card" } as any,
-        },
+        queueInput(buildMessage("另一个命令", "msg_unused_queued")),
         async () => undefined,
       );
       await vi.waitFor(() => expect(shared.streamAICardMock).toHaveBeenCalled());
@@ -631,6 +646,60 @@ describe('inbound session queue (钉钉"确认"无响应 regression)', () => {
       releaseFirst();
       await Promise.all([first, queued]);
       expect(shared.recallAICardMessageMock).toHaveBeenCalledWith(queuedCard, undefined);
+    });
+
+    it("finishes a queued ACK with a retryable failure when its handler throws", async () => {
+      shared.extractMessageContentMock.mockImplementation((data: any) => ({
+        text: data?.text?.content,
+        messageType: "text",
+      }));
+      const queuedCard = {
+        cardInstanceId: "card_failed_queue_ack",
+        outTrackId: "track_failed_queue_ack",
+        state: "INPUTING",
+        storePath: STORE_PATH,
+        lastUpdated: Date.now(),
+      };
+      shared.createAICardMock.mockResolvedValue(queuedCard);
+      shared.isCardInTerminalStateMock.mockReturnValue(false);
+
+      let releaseFirst: () => void = () => {};
+      let resolveFirstStarted: () => void = () => {};
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const firstStarted = new Promise<void>((resolve) => {
+        resolveFirstStarted = resolve;
+      });
+      const first = dispatchInboundViaSessionQueue(
+        queueInput(buildMessage("查询", "msg_failure_active")),
+        async () => {
+          resolveFirstStarted();
+          await firstGate;
+        },
+      );
+      await firstStarted;
+      const queued = dispatchInboundViaSessionQueue(
+        queueInput(buildMessage("确认", "msg_failure_queued")),
+        async () => {
+          throw new Error("sessions.json EBUSY");
+        },
+      ).catch((error: unknown) => error);
+      await vi.waitFor(() => expect(shared.streamAICardMock).toHaveBeenCalled());
+
+      releaseFirst();
+      await first;
+      const error = await queued;
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("sessions.json EBUSY");
+      expect(shared.recallAICardMessageMock).not.toHaveBeenCalledWith(queuedCard, undefined);
+      expect(shared.streamAICardMock).toHaveBeenCalledWith(
+        queuedCard,
+        expect.stringContaining("本次处理异常"),
+        true,
+        undefined,
+      );
     });
 
   it("ask-user reinjections BYPASS the queue (no queue-busy ACK card prepared)", async () => {

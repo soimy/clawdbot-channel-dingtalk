@@ -340,11 +340,18 @@ describe("gateway inbound callback pipeline", () => {
       });
 
       await Promise.resolve();
-      // The gateway's message-level lock has expired, but the original
-      // conversation is still genuinely running. Keep the resend in the
-      // per-conversation FIFO queue; dispatching it concurrently would
-      // reintroduce the reply-session conflict that this queue prevents.
-      expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(1);
+      // The gateway owns only transport deduplication. Once its stale message
+      // lock expires, both events enter the handler; the handler-owned queue
+      // serializes them only after authorization and trusted route resolution.
+      expect(shared.handleDingTalkMessageMock).toHaveBeenCalledTimes(2);
+      expect(shared.handleDingTalkMessageMock).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ inboundOrigin: "stream", inboundQueueEligible: true }),
+      );
+      expect(shared.handleDingTalkMessageMock).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ inboundOrigin: "stream", inboundQueueEligible: true }),
+      );
       resolveFirst?.();
       await first;
       await second;

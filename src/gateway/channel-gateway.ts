@@ -12,7 +12,6 @@ import {
   recordExplicitFeedbackLearning,
 } from "../feedback-learning-service";
 import { handleDingTalkMessage } from "../inbound-handler";
-import { dispatchInboundViaSessionQueue } from "../inbound-session-queue-dispatcher";
 import { setCurrentLogger } from "../logger-context";
 import { preloadPeerIdsFromSessions } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";
@@ -276,19 +275,16 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               ctx.log?.warn?.(`[${account.accountId}] No message ID available for deduplication`);
               stats.noMessageId += 1;
               acknowledge();
-              await dispatchInboundViaSessionQueue(
-                { cfg, accountId: account.accountId, data, dingtalkConfig: config, log: pluginLog },
-                (preCreatedCard) =>
-                  handleDingTalkMessage({
-                    cfg,
-                    accountId: account.accountId,
-                    data,
-                    sessionWebhook: data.sessionWebhook,
-                    log: pluginLog,
-                    dingtalkConfig: config,
-                    preCreatedCard,
-                  }),
-              );
+              await handleDingTalkMessage({
+                cfg,
+                accountId: account.accountId,
+                data,
+                sessionWebhook: data.sessionWebhook,
+                log: pluginLog,
+                dingtalkConfig: config,
+                inboundOrigin: "stream",
+                inboundQueueEligible: true,
+              });
               stats.processed += 1;
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {
                 logInboundCounters(pluginLog, account.accountId, "periodic");
@@ -325,19 +321,16 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
             acknowledge();
             processingDedupKeys.set(dedupKey, Date.now());
             try {
-              await dispatchInboundViaSessionQueue(
-                { cfg, accountId: account.accountId, data, dingtalkConfig: config, log: pluginLog },
-                (preCreatedCard) =>
-                  handleDingTalkMessage({
-                    cfg,
-                    accountId: account.accountId,
-                    data,
-                    sessionWebhook: data.sessionWebhook,
-                    log: pluginLog,
-                    dingtalkConfig: config,
-                    preCreatedCard,
-                  }),
-              );
+              await handleDingTalkMessage({
+                cfg,
+                accountId: account.accountId,
+                data,
+                sessionWebhook: data.sessionWebhook,
+                log: pluginLog,
+                dingtalkConfig: config,
+                inboundOrigin: "stream",
+                inboundQueueEligible: true,
+              });
               stats.processed += 1;
               markMessageProcessed(dedupKey);
               if (stats.received % INBOUND_COUNTER_LOG_EVERY === 0) {

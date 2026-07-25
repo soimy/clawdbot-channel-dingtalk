@@ -484,6 +484,12 @@ export interface HandleDingTalkMessageParams {
   dingtalkConfig: DingTalkConfig;
   /** Distinguishes real Stream messages from Ask User callback reinjection. */
   inboundOrigin?: "stream" | "ask-user";
+  /**
+   * Explicitly enables handler-owned queueing for a real gateway Stream
+   * callback. Direct/synthetic callers must not be inferred from raw message
+   * shape, because they may already be inside another handler lifecycle.
+   */
+  inboundQueueEligible?: boolean;
   /** Reuses an already-resolved trusted route for recursive or synthetic handling. */
   routeOverride?: ResolvedDingTalkRoute;
   /**
@@ -510,6 +516,13 @@ export interface HandleDingTalkMessageParams {
    * card as usual.
    */
   preCreatedCard?: AICardInstance;
+  /**
+   * Internal recursion guard for the authorized inbound session queue. The
+   * first handler pass performs access control and trusted route resolution;
+   * the queued continuation re-enters with this set so it can consume the
+   * pre-created card without queueing itself again.
+   */
+  inboundQueueHandled?: boolean;
 }
 
 /**

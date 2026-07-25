@@ -34,6 +34,7 @@ import {
 } from "./config";
 import { buildLearningContextBlock, isLearningEnabled } from "./feedback-learning-service";
 import axios from "./http-client";
+import { dispatchInboundViaSessionQueue } from "./inbound-session-queue-dispatcher";
 import { setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import {
@@ -575,16 +576,9 @@ export async function downloadMedia(
 
 export async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
   // Keep context creation inside this public inbound entry. Ask-user synthetic
-  // reinjections call handleDingTalkMessage directly, so moving this wrapper to
-  // gateway callbacks would lose per-message isolation for reinjected answers.
-  //
-  // Per-conversation serialization (so a message arriving while another is being
-  // processed is QUEUED and auto-reprocessed instead of dropped on a reply-
-  // session conflict) lives in the gateway dispatcher
-  // (`src/inbound-session-queue-dispatcher.ts`), which wraps the gateway's call
-  // to this function. Direct callers — ask-user reinjections and unit tests —
-  // bypass that queue, which is intentional: ask-user happens inside an
-  // already-active run, and unit tests drive the handler in isolation.
+  // reinjections call handleDingTalkMessage directly.  The normal inbound queue
+  // is therefore entered later, after this handler has completed authorization
+  // and trusted route/session resolution; ask-user stays outside that queue.
   return withDingTalkQuestionContext(
     {
       cfg: params.cfg,
@@ -1011,7 +1005,45 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   const quotedRef = buildInboundQuotedRef(data, extractedContent);
   const replyQuotedRef = createReplyQuotedRef(data.msgId);
   const content = extractedContent;
-  const isBtwBypass = isBtwRequestText(stripLeadingMentions(content.text).trim());
+  // Decide control-message bypasses once from the user-authored text.  Reusing
+  // the result below keeps /stop out of the FIFO queue without calling the SDK
+  // classifier a second time after attachment/OCR enrichment.
+  const controlText = stripLeadingMentions(content.text).trim();
+  const isBtwBypass = isBtwRequestText(controlText);
+  const isAbortBypass = isAbortRequestText(controlText);
+
+  // Queue only after all access checks and the trusted route.sessionKey above.
+  // Gateway-level queueing uses only raw conversationId, which can both
+  // acknowledge an unauthorized sender and block /stop or /btw behind a long
+  // run.  A queued continuation re-enters with the guard set and reuses the
+  // visible queue ACK card for the actual answer.
+  if (
+    params.inboundQueueEligible &&
+    !params.inboundQueueHandled &&
+    inboundOrigin !== "ask-user" &&
+    !isBtwBypass &&
+    !isAbortBypass
+  ) {
+    await dispatchInboundViaSessionQueue(
+      {
+        accountId,
+        data,
+        dingtalkConfig,
+        sessionKey: route.sessionKey,
+        to,
+        storePath: accountStorePath,
+        quoteContent: rawInboundText.slice(0, 200),
+        log,
+      },
+      (preCreatedCard) =>
+        handleDingTalkMessage({
+          ...params,
+          preCreatedCard,
+          inboundQueueHandled: true,
+        }),
+    );
+    return;
+  }
   const taskInfoConversationId = groupId || to;
   const agentDisplayName = getAgentDisplayName({
     subAgentOptions,
@@ -1847,12 +1879,11 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     // tryFastAbortFromMessage (inside the SDK) kill any in-flight generation immediately,
     // rather than waiting for it to finish before the stop message is processed.
     //
-    // Strip leading @mention tokens before the abort check so that messages like
-    // "@Agent /stop" are correctly recognised as abort requests in both DM and group
-    // chats. In groups DingTalk usually strips @BotName at the protocol level, but
-    // in DMs with multi-agent routing the @mention prefix survives all the way here.
-    const textForAbortCheck = stripLeadingMentions(inboundText).trim();
-    if (isAbortRequestText(textForAbortCheck)) {
+    // The early control-text decision strips leading @mentions, so messages like
+    // "@Agent /stop" are correctly recognised in both DM and group chats.  It is
+    // intentionally reused here instead of reclassifying attachment/OCR-enriched
+    // input, which would make queue admission and the actual abort path disagree.
+    if (isAbortBypass) {
       log?.info?.(
         `[DingTalk] Abort request detected, bypassing session lock for session=${route.sessionKey}`,
       );
