@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk/core";
 import { getAccessToken } from "../auth";
 import { updateCardVariables } from "../card-callback-service";
 import { resolveRobotCode } from "../config";
@@ -9,6 +9,7 @@ import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "../types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption, parseBooleanLike } from "../utils";
 import {
   getDingTalkQuestionContext,
+  getDingTalkQuestionContextForSession,
   type DingTalkQuestionContext,
 } from "./ask-user-question-context";
 import {
@@ -1233,7 +1234,7 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
     return;
   }
 
-  registerTool.call(api, {
+  const createTool = (context: DingTalkQuestionContext | undefined) => ({
     name: TOOL_NAME,
     label: "Ask User Question",
     description:
@@ -1247,7 +1248,6 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       "Do not call this tool for normal explanations, why/how questions, capability introductions, or cases where you can answer directly.",
     parameters: AskUserQuestionSchema as any,
     async execute(_toolCallId: string, params: unknown) {
-      const context = getDingTalkQuestionContext();
       if (!context) {
         return jsonToolResult({
           status: "failed",
@@ -1410,5 +1410,17 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
       });
     },
   });
+  registerTool.call(
+    api,
+    (toolContext: OpenClawPluginToolContext) => {
+      const sessionKey = toolContext.sessionKey?.trim();
+      return createTool(
+        sessionKey
+          ? getDingTalkQuestionContextForSession(sessionKey)
+          : getDingTalkQuestionContext(),
+      );
+    },
+    { name: TOOL_NAME },
+  );
   api.logger?.debug?.(`${TOOL_NAME}: registered tool`);
 }

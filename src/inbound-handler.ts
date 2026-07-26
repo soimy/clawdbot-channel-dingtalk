@@ -18,6 +18,7 @@ import {
   syncInvalidatedAskUserQuestionCards,
 } from "./card/ask-user-question";
 import {
+  bindDingTalkQuestionContextToSession,
   getDingTalkQuestionContext,
   withDingTalkQuestionContext,
 } from "./card/ask-user-question-context";
@@ -956,6 +957,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
           matchedName: subAgentOptions.matchedName,
         }
       : undefined;
+    bindDingTalkQuestionContextToSession(route.sessionKey, questionContext);
   }
   if (!subAgentOptions) {
     invalidateQuestionRoutes([route]);

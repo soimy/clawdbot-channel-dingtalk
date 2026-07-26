@@ -35,6 +35,12 @@ import { withDingTalkQuestionContext } from "../../src/card/ask-user-question-co
 import { resolveAskUserQuestion } from "../../src/card/ask-user-question-store";
 import { resolveNamespacePath } from "../../src/persistence-store";
 
+type AskUserTool = {
+  execute: (toolCallId: string, params: unknown) => Promise<any>;
+};
+
+type AskUserToolFactory = (context: { sessionKey?: string }) => AskUserTool;
+
 describe("Ask User delivery activation gate", () => {
   let tempDir: string;
   let storePath: string;
@@ -53,10 +59,10 @@ describe("Ask User delivery activation gate", () => {
   });
 
   it("does not revive a reserved question invalidated while card delivery is in flight", async () => {
-    let tool: { execute: (toolCallId: string, params: unknown) => Promise<any> } | undefined;
+    let toolFactory: AskUserToolFactory | undefined;
     registerDingTalkAskUserQuestionTool({
       registerTool: (registered: unknown) => {
-        tool = registered as typeof tool;
+        toolFactory = registered as AskUserToolFactory;
       },
       logger: {},
     } as any);
@@ -94,7 +100,7 @@ describe("Ask User delivery activation gate", () => {
         onQuestionCardSent,
       },
       async () =>
-        tool!.execute("tool_delivery_race", {
+        toolFactory!({}).execute("tool_delivery_race", {
           questions: [
             {
               question: "是否继续？",
@@ -163,10 +169,10 @@ describe("Ask User delivery activation gate", () => {
   });
 
   it("fails closed when the reserved lifecycle record disappears during delivery", async () => {
-    let tool: { execute: (toolCallId: string, params: unknown) => Promise<any> } | undefined;
+    let toolFactory: AskUserToolFactory | undefined;
     registerDingTalkAskUserQuestionTool({
       registerTool: (registered: unknown) => {
-        tool = registered as typeof tool;
+        toolFactory = registered as AskUserToolFactory;
       },
       logger: {},
     } as any);
@@ -203,7 +209,7 @@ describe("Ask User delivery activation gate", () => {
         onQuestionCardSent,
       },
       async () =>
-        tool!.execute("tool_missing_record", {
+        toolFactory!({}).execute("tool_missing_record", {
           questions: [
             {
               question: "是否继续？",

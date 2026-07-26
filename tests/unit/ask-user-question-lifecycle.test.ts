@@ -45,6 +45,12 @@ import {
   resolveAskUserQuestion,
 } from "../../src/card/ask-user-question-store";
 
+type AskUserTool = {
+  execute: (toolCallId: string, params: unknown) => Promise<any>;
+};
+
+type AskUserToolFactory = (context: { sessionKey?: string }) => AskUserTool;
+
 describe("Ask User lifecycle integration", () => {
   let tempDir: string;
   let storePath: string;
@@ -388,10 +394,10 @@ describe("Ask User lifecycle integration", () => {
   });
 
   it("invalidates the delivered card and reports failure when targeted pause does not succeed", async () => {
-    let tool: { execute: (toolCallId: string, params: unknown) => Promise<any> } | undefined;
+    let toolFactory: AskUserToolFactory | undefined;
     registerDingTalkAskUserQuestionTool({
       registerTool: (registered: unknown) => {
-        tool = registered as typeof tool;
+        toolFactory = registered as AskUserToolFactory;
       },
       logger: {},
     } as any);
@@ -418,7 +424,7 @@ describe("Ask User lifecycle integration", () => {
         onQuestionCardSent: async () => false,
       },
       async () =>
-        tool!.execute("tool_1", {
+        toolFactory!({}).execute("tool_1", {
           questions: [
             {
               question: "是否继续？",
