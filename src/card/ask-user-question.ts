@@ -9,7 +9,6 @@ import type { DingTalkConfig, DingTalkInboundMessage, Logger } from "../types";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption, parseBooleanLike } from "../utils";
 import {
   getDingTalkQuestionContext,
-  getDingTalkQuestionContextForSession,
   type DingTalkQuestionContext,
 } from "./ask-user-question-context";
 import {
@@ -1413,11 +1412,15 @@ export function registerDingTalkAskUserQuestionTool(api: OpenClawPluginApi): voi
   registerTool.call(
     api,
     (toolContext: OpenClawPluginToolContext) => {
-      const sessionKey = toolContext.sessionKey?.trim();
+      // Capture the inbound run's context while the factory is still inside its
+      // AsyncLocalStorage scope; shared agent clients may execute the tool later.
+      const context = getDingTalkQuestionContext();
+      const runtimeSessionKey = toolContext.sessionKey?.trim();
+      const contextSessionKey = context?.resolvedRoute?.sessionKey.trim();
       return createTool(
-        sessionKey
-          ? getDingTalkQuestionContextForSession(sessionKey)
-          : getDingTalkQuestionContext(),
+        context && (!runtimeSessionKey || contextSessionKey === runtimeSessionKey)
+          ? context
+          : undefined,
       );
     },
     { name: TOOL_NAME },

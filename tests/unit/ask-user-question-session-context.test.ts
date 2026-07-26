@@ -28,8 +28,6 @@ import {
   registerDingTalkAskUserQuestionTool,
 } from "../../src/card/ask-user-question";
 import {
-  bindDingTalkQuestionContextToSession,
-  clearDingTalkQuestionSessionContextsForTest,
   type DingTalkQuestionContext,
   withDingTalkQuestionContext,
 } from "../../src/card/ask-user-question-context";
@@ -44,6 +42,7 @@ function questionContext(params: {
   conversationType: "1" | "2";
   conversationId: string;
   senderId: string;
+  sessionKey: string;
 }): DingTalkQuestionContext {
   return {
     cfg: {} as any,
@@ -65,6 +64,12 @@ function questionContext(params: {
       clientSecret: "secret",
       robotCode: "robot",
     } as any,
+    resolvedRoute: {
+      agentId: "main",
+      sessionKey: params.sessionKey,
+      mainSessionKey: params.sessionKey,
+    },
+    questionScopeKey: `main:${params.sessionKey}:${params.senderId}`,
     onQuestionCardSent: async () => true,
   };
 }
@@ -101,12 +106,10 @@ const QUESTION_PARAMS = {
 describe("Ask User session-bound tool context", () => {
   beforeEach(() => {
     shared.axiosPost.mockClear();
-    clearDingTalkQuestionSessionContextsForTest();
   });
 
   afterEach(() => {
     clearPendingQuestionsForTest();
-    clearDingTalkQuestionSessionContextsForTest();
   });
 
   it("delivers to the current group session even when ambient async context is a direct chat", async () => {
@@ -114,22 +117,21 @@ describe("Ask User session-bound tool context", () => {
       conversationType: "1",
       conversationId: "direct_conversation",
       senderId: "direct_user",
+      sessionKey: "agent:main:dingtalk:direct:direct_user",
     });
     const groupContext = questionContext({
       conversationType: "2",
       conversationId: "group_conversation",
       senderId: "group_user",
-    });
-    bindDingTalkQuestionContextToSession("agent:main:dingtalk:direct:direct_user", directContext);
-    bindDingTalkQuestionContextToSession(
-      "agent:main:dingtalk:group:group_conversation",
-      groupContext,
-    );
-
-    const registered = registerToolFactory();
-    const groupTool = registered.factory({
       sessionKey: "agent:main:dingtalk:group:group_conversation",
     });
+
+    const registered = registerToolFactory();
+    const groupTool = await withDingTalkQuestionContext(groupContext, async () =>
+      registered.factory({
+        sessionKey: "agent:main:dingtalk:group:group_conversation",
+      }),
+    );
 
     await withDingTalkQuestionContext(directContext, () =>
       groupTool.execute("tool_group", QUESTION_PARAMS),
@@ -150,22 +152,68 @@ describe("Ask User session-bound tool context", () => {
       conversationType: "1",
       conversationId: "direct_conversation",
       senderId: "direct_user",
+      sessionKey: "agent:main:dingtalk:direct:direct_user",
     });
-    bindDingTalkQuestionContextToSession(
-      "agent:main:dingtalk:direct:direct_user",
-      staleDirectContext,
-    );
 
     const { factory } = registerToolFactory();
-    const unboundTool = factory({ sessionKey: "agent:main:cli:unbound" });
-    const result = await withDingTalkQuestionContext(staleDirectContext, () =>
-      unboundTool.execute("tool_unbound", QUESTION_PARAMS),
+    const unboundTool = await withDingTalkQuestionContext(staleDirectContext, async () =>
+      factory({ sessionKey: "agent:main:cli:unbound" }),
     );
+    const result = await unboundTool.execute("tool_unbound", QUESTION_PARAMS);
 
     expect(result.details).toEqual({
       status: "failed",
       error: "dingtalk_ask_user_question can only be used in a DingTalk message context",
     });
     expect(shared.axiosPost).not.toHaveBeenCalled();
+  });
+
+  it("keeps concurrent runs isolated when they share the same session key", async () => {
+    const sessionKey = "agent:main:dingtalk:group:shared_group";
+    const firstCallback = vi.fn(async () => true);
+    const secondCallback = vi.fn(async () => true);
+    const firstContext = questionContext({
+      conversationType: "2",
+      conversationId: "shared_group",
+      senderId: "first_user",
+      sessionKey,
+    });
+    const secondContext = questionContext({
+      conversationType: "2",
+      conversationId: "shared_group",
+      senderId: "second_user",
+      sessionKey,
+    });
+    firstContext.onQuestionCardSent = firstCallback;
+    secondContext.onQuestionCardSent = secondCallback;
+
+    const { factory } = registerToolFactory();
+    let releaseFirstFactory: (() => void) | undefined;
+    const secondFactoryCompleted = new Promise<void>((resolve) => {
+      releaseFirstFactory = resolve;
+    });
+    const firstToolPromise = withDingTalkQuestionContext(firstContext, async () => {
+      await secondFactoryCompleted;
+      return factory({ sessionKey });
+    });
+    const secondTool = await withDingTalkQuestionContext(secondContext, async () => {
+      releaseFirstFactory?.();
+      return factory({ sessionKey });
+    });
+    const firstTool = await firstToolPromise;
+
+    await withDingTalkQuestionContext(secondContext, () =>
+      firstTool.execute("tool_first", QUESTION_PARAMS),
+    );
+
+    expect(firstCallback).toHaveBeenCalledTimes(1);
+    expect(secondCallback).not.toHaveBeenCalled();
+
+    clearPendingQuestionsForTest();
+    await withDingTalkQuestionContext(firstContext, () =>
+      secondTool.execute("tool_second", QUESTION_PARAMS),
+    );
+
+    expect(secondCallback).toHaveBeenCalledTimes(1);
   });
 });
