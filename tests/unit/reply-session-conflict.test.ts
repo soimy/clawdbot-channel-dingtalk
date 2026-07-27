@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
     isReplySessionConflictError,
     withReplySessionConflictRetry,
-} from "../../src/reply-session-conflict";
+} from "../../src/gateway/reply-session-conflict";
 
 describe("isReplySessionConflictError", () => {
     it("matches the core reply-session conflict message", () => {

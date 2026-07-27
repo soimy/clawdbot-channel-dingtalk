@@ -69,8 +69,10 @@ describe("inbound-handler test structure", () => {
 
     expect(fs.existsSync(path.join(srcRoot, "inbound-session-queue.ts"))).toBe(false);
     expect(fs.existsSync(path.join(srcRoot, "inbound-session-queue-dispatcher.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(srcRoot, "reply-session-conflict.ts"))).toBe(false);
     expect(fs.existsSync(path.join(srcRoot, "gateway/inbound-session-queue.ts"))).toBe(true);
     expect(fs.existsSync(path.join(srcRoot, "gateway/inbound-session-queue-dispatcher.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(srcRoot, "gateway/reply-session-conflict.ts"))).toBe(true);
   });
 
   it("keeps inbound queue integration test files under 500 lines", () => {

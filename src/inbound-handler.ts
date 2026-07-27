@@ -64,7 +64,7 @@ import {
 import {
   isReplySessionConflictError,
   withReplySessionConflictRetry,
-} from "./reply-session-conflict";
+} from "./gateway/reply-session-conflict";
 import { createReplyStrategy } from "./reply-strategy";
 import type { DeliverPayload } from "./reply-strategy-types";
 import { getDingTalkRuntime } from "./runtime";
