@@ -111,6 +111,62 @@ describe('inbound session queue recovery and bypass', () => {
       );
     });
 
+    it("sends a text fallback when a queued failure card cannot be finalized", async () => {
+      shared.extractMessageContentMock.mockImplementation((data: any) => ({
+        text: data?.text?.content,
+        messageType: "text",
+      }));
+      const queuedCard = {
+        cardInstanceId: "card_failed_terminal_update",
+        outTrackId: "track_failed_terminal_update",
+        state: "INPUTING",
+        storePath: STORE_PATH,
+        lastUpdated: Date.now(),
+      };
+      shared.createAICardMock.mockResolvedValue(queuedCard);
+      shared.isCardInTerminalStateMock.mockReturnValue(false);
+      shared.streamAICardMock
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("terminal stream failed"));
+
+      let releaseFirst: () => void = () => {};
+      let resolveFirstStarted: () => void = () => {};
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const firstStarted = new Promise<void>((resolve) => {
+        resolveFirstStarted = resolve;
+      });
+      const first = dispatchInboundViaSessionQueue(
+        queueInput(buildMessage("查询", "msg_terminal_failure_active")),
+        async () => {
+          resolveFirstStarted();
+          await firstGate;
+        },
+      );
+      await firstStarted;
+      const queued = dispatchInboundViaSessionQueue(
+        queueInput(buildMessage("确认", "msg_terminal_failure_queued")),
+        async () => {
+          throw new Error("handler failed");
+        },
+      ).catch((error: unknown) => error);
+      await vi.waitFor(() => expect(shared.streamAICardMock).toHaveBeenCalledTimes(1));
+
+      releaseFirst();
+      const [, error] = await Promise.all([first, queued]);
+
+      expect(error).toMatchObject({ message: "handler failed" });
+      expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
+      expect(shared.sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(shared.sendMessageMock).toHaveBeenCalledWith(
+        expect.anything(),
+        "user-queue",
+        expect.stringContaining("本次处理异常"),
+        expect.objectContaining({ sessionWebhook: expect.any(String) }),
+      );
+    });
+
   it("ask-user reinjections BYPASS the queue (no queue-busy ACK card prepared)", async () => {
     let resolveFirstDispatchStarted: () => void = () => {};
     const firstDispatchStarted = new Promise<void>((resolve) => {

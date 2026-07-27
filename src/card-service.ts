@@ -1246,7 +1246,11 @@ export async function streamAICard(
   } catch (err: any) {
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
-    removePendingCard(card, log);
+    if (finished) {
+      retainPendingCardForTerminalRetry(card, log);
+    } else {
+      removePendingCard(card, log);
+    }
     if (err.response?.status === 500 && err.response?.data?.code === "unknownError") {
       const errorMsg =
         "⚠️ **[DingTalk] AI Card 串流更新失败 (500 unknownError)**\n\n"

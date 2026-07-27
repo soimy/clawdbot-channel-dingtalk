@@ -255,12 +255,19 @@ async function sendQueueTerminalAck(
   const { dingtalkConfig, data, log, to, storePath } = input;
   try {
     if (preCreatedCard) {
-      await streamAICard(preCreatedCard, content, true, log);
-      return;
-    }
-    const card = await tryPrepareQueueAckCard(input, () => ({ content, finished: true }));
-    if (card) {
-      return;
+      try {
+        await streamAICard(preCreatedCard, content, true, log);
+        return;
+      } catch (err: unknown) {
+        log?.warn?.(
+          `[DingTalk] Queue acknowledgement card finalization failed; falling back to text: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    } else {
+      const card = await tryPrepareQueueAckCard(input, () => ({ content, finished: true }));
+      if (card) {
+        return;
+      }
     }
     if (!to) {
       return;
