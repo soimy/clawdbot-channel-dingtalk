@@ -34,7 +34,7 @@ import {
 } from "./config";
 import { buildLearningContextBlock, isLearningEnabled } from "./feedback-learning-service";
 import axios from "./http-client";
-import { dispatchInboundViaSessionQueue } from "./inbound-session-queue-dispatcher";
+import { dispatchInboundViaSessionQueue } from "./gateway/inbound-session-queue-dispatcher";
 import { setCurrentLogger } from "./logger-context";
 import { prepareMediaInput, resolveOutboundMediaType } from "./media-utils";
 import {

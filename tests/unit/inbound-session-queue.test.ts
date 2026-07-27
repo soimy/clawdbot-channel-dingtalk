@@ -8,7 +8,7 @@ import {
   isInboundSessionQueueBusy,
   pickQueueBusyAckPhrase,
   resetInboundSessionQueueForTest,
-} from "../../src/inbound-session-queue";
+} from "../../src/gateway/inbound-session-queue";
 
 describe("deriveInboundQueueKey", () => {
   it("groups by accountId + conversationId", () => {

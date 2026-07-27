@@ -64,6 +64,28 @@ function findDuplicateVitestTitles(source: string): string[] {
 }
 
 describe("inbound-handler test structure", () => {
+  it("keeps inbound queue modules in the gateway domain", () => {
+    const srcRoot = fileURLToPath(new URL("../../src/", import.meta.url));
+
+    expect(fs.existsSync(path.join(srcRoot, "inbound-session-queue.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(srcRoot, "inbound-session-queue-dispatcher.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(srcRoot, "gateway/inbound-session-queue.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(srcRoot, "gateway/inbound-session-queue-dispatcher.ts"))).toBe(true);
+  });
+
+  it("keeps inbound queue integration test files under 500 lines", () => {
+    const integrationRoot = fileURLToPath(new URL("../integration/", import.meta.url));
+    const queueTests = fs
+      .readdirSync(integrationRoot)
+      .filter((name) => name.startsWith("inbound-session-queue") && name.endsWith(".test.ts"));
+
+    expect(queueTests.length).toBeGreaterThan(1);
+    for (const testFile of queueTests) {
+      const lineCount = fs.readFileSync(path.join(integrationRoot, testFile), "utf8").split("\n").length;
+      expect(lineCount, testFile).toBeLessThanOrEqual(500);
+    }
+  });
+
   it("does not contain duplicate test titles", () => {
     expect(findDuplicateVitestTitles(readInboundHandlerTestSource())).toEqual([]);
   });

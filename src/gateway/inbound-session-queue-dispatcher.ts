@@ -21,13 +21,13 @@
 // orchestrator, adapted to soimy's blocking gateway contract (we await each
 // task so the gateway's per-message dedup stays correct).
 
-import { attachNativeAckReaction } from "./ack-reaction-service";
+import { attachNativeAckReaction } from "../ack-reaction-service";
 import {
   createAICard,
   isCardInTerminalState,
   recallAICardMessage,
   streamAICard,
-} from "./card-service";
+} from "../card-service";
 import {
   chainInboundSessionTask,
   getInboundSessionQueueDepth,
@@ -37,8 +37,8 @@ import {
   MAX_INBOUND_SESSION_QUEUE_WAIT_MS,
   pickQueueBusyAckPhrase,
 } from "./inbound-session-queue";
-import { sendMessage } from "./send-service";
-import type { AICardInstance, DingTalkConfig, DingTalkInboundMessage, Logger } from "./types";
+import { sendMessage } from "../send-service";
+import type { AICardInstance, DingTalkConfig, DingTalkInboundMessage, Logger } from "../types";
 
 export interface InboundQueueDispatchInput {
   accountId: string;
