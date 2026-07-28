@@ -234,25 +234,38 @@ describe('gateway.startAccount lifecycle', () => {
         expect(resolveOriginalPeerId('staffuser+xyz')).toBe('StaffUser+XyZ');
     });
 
-    it('migrates historical account sessions into the persisted target directory', async () => {
+    it('migrates historical sessions from configured agents into the target directory', async () => {
         shared.storePath = mkdtempSync(join(tmpdir(), 'dingtalk-peer-registry-'));
-        shared.listSessionEntriesMock.mockReturnValue([
-            {
-                sessionKey: 'agent:main:dingtalk:group:cidlegacy+abc',
-                entry: {
-                    sessionId: 'legacy-session',
-                    updatedAt: 1000,
-                    lastChannel: 'dingtalk',
-                    lastAccountId: 'main',
-                    lastTo: 'cidLegacy+AbC',
-                },
+        shared.listSessionEntriesMock.mockImplementation(({ agentId }: { agentId: string }) =>
+            agentId === 'agent-alpha'
+                ? [
+                    {
+                        sessionKey: 'agent:agent-alpha:dingtalk:group:cidlegacy+abc',
+                        entry: {
+                            sessionId: 'legacy-session',
+                            updatedAt: 1000,
+                            lastChannel: 'dingtalk',
+                            lastAccountId: 'main',
+                            lastTo: 'cidLegacy+AbC',
+                        },
+                    },
+                ]
+                : [],
+        );
+        const { ctx } = createStartContext();
+        ctx.cfg = {
+            agents: {
+                list: [
+                    { id: 'main', default: true },
+                    { id: 'agent-alpha' },
+                ],
             },
-        ]);
+        } as any;
 
-        await startGatewayAccount(createStartContext().ctx);
+        await startGatewayAccount(ctx);
 
         expect(shared.listSessionEntriesMock).toHaveBeenCalledWith({
-            agentId: 'main',
+            agentId: 'agent-alpha',
             storePath: shared.storePath,
             readConsistency: 'latest',
         });
@@ -261,7 +274,7 @@ describe('gateway.startAccount lifecycle', () => {
         clearPeerIdRegistry();
         clearTargetDirectoryStateCache();
         shared.listSessionEntriesMock.mockReturnValue([]);
-        await startGatewayAccount(createStartContext().ctx);
+        await startGatewayAccount(ctx);
 
         expect(resolveOriginalPeerId('cidlegacy+abc')).toBe('cidLegacy+AbC');
     });

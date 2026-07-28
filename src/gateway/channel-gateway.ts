@@ -1,4 +1,5 @@
 import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from "dingtalk-stream";
+import { listAgentIds } from "openclaw/plugin-sdk/agent-runtime";
 import { analyzeCardCallback } from "../card-callback-service";
 import { finalizeActiveCardsForAccount, recoverPendingCardsForAccount } from "../card-service";
 import { recoverAskUserQuestionsForAccount } from "../card/ask-user-question";
@@ -194,35 +195,44 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
           registerPeerId(group.conversationId);
           knownGroupIds.add(group.conversationId.toLowerCase());
         }
-        for (const { entry } of getDingTalkRuntime().agent.session.listSessionEntries({
-          agentId: account.accountId,
-          storePath: accountStorePath,
-          readConsistency: "latest",
-        })) {
-          const isDingTalkSession = [
-            entry.lastChannel,
-            entry.channel,
-            entry.origin?.provider,
-            entry.origin?.surface,
-          ].some((value) => value === "dingtalk");
-          const sessionAccountId = entry.lastAccountId || entry.origin?.accountId;
-          if (!isDingTalkSession || (sessionAccountId && sessionAccountId !== account.accountId)) {
-            continue;
-          }
-          for (const peerId of [entry.lastTo, entry.origin?.from, entry.origin?.to]) {
-            if (typeof peerId !== "string" || !peerId.startsWith("cid")) {
+        const runtime = getDingTalkRuntime();
+        for (const agentId of listAgentIds(cfg)) {
+          const sessionStorePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
+            agentId,
+          });
+          for (const { entry } of runtime.agent.session.listSessionEntries({
+            agentId,
+            storePath: sessionStorePath,
+            readConsistency: "latest",
+          })) {
+            const isDingTalkSession = [
+              entry.lastChannel,
+              entry.channel,
+              entry.origin?.provider,
+              entry.origin?.surface,
+            ].some((value) => value === "dingtalk");
+            const sessionAccountId = entry.lastAccountId || entry.origin?.accountId;
+            if (
+              !isDingTalkSession ||
+              (sessionAccountId && sessionAccountId !== account.accountId)
+            ) {
               continue;
             }
-            registerPeerId(peerId);
-            const normalizedPeerId = peerId.toLowerCase();
-            if (!knownGroupIds.has(normalizedPeerId)) {
-              upsertObservedGroupTarget({
-                storePath: accountStorePath,
-                accountId: account.accountId,
-                conversationId: peerId,
-                seenAt: entry.updatedAt,
-              });
-              knownGroupIds.add(normalizedPeerId);
+            for (const peerId of [entry.lastTo, entry.origin?.from, entry.origin?.to]) {
+              if (typeof peerId !== "string" || !peerId.startsWith("cid")) {
+                continue;
+              }
+              registerPeerId(peerId);
+              const normalizedPeerId = peerId.toLowerCase();
+              if (!knownGroupIds.has(normalizedPeerId)) {
+                upsertObservedGroupTarget({
+                  storePath: accountStorePath,
+                  accountId: account.accountId,
+                  conversationId: peerId,
+                  seenAt: entry.updatedAt,
+                });
+                knownGroupIds.add(normalizedPeerId);
+              }
             }
           }
         }
