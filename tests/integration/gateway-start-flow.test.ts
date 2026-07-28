@@ -15,6 +15,7 @@ const shared = vi.hoisted(() => ({
     clientGetEndpointMock: vi.fn(),
     clientConnectMock: vi.fn(),
     clientDisconnectMock: vi.fn(),
+    listSessionEntriesMock: vi.fn(),
     dwClientConfig: undefined as any,
     storePath: undefined as string | undefined,
 }));
@@ -140,6 +141,7 @@ describe('gateway.startAccount lifecycle', () => {
         shared.clientGetEndpointMock.mockReset();
         shared.clientConnectMock.mockReset();
         shared.clientDisconnectMock.mockReset();
+        shared.listSessionEntriesMock.mockReset();
         shared.dwClientConfig = undefined;
         shared.storePath = undefined;
 
@@ -148,9 +150,15 @@ describe('gateway.startAccount lifecycle', () => {
         shared.isConnectedMock.mockReturnValue(true);
         shared.clientGetEndpointMock.mockResolvedValue(undefined);
         shared.clientConnectMock.mockResolvedValue(undefined);
+        shared.listSessionEntriesMock.mockReturnValue([]);
         shared.resolvePluginDebugLogMock.mockImplementation(({ baseLog }: any) => baseLog);
         setDingTalkRuntime({
             config: { current: () => ({}) },
+            agent: {
+                session: {
+                    listSessionEntries: shared.listSessionEntriesMock,
+                },
+            },
             channel: {
                 session: {
                     resolveStorePath: () => shared.storePath,
@@ -224,6 +232,38 @@ describe('gateway.startAccount lifecycle', () => {
         expect(resolveOriginalPeerId('cidgroup+abc')).toBe('CidGroup+AbC');
         expect(resolveOriginalPeerId('unionuser+xyz')).toBe('UnionUser+XyZ');
         expect(resolveOriginalPeerId('staffuser+xyz')).toBe('StaffUser+XyZ');
+    });
+
+    it('migrates historical account sessions into the persisted target directory', async () => {
+        shared.storePath = mkdtempSync(join(tmpdir(), 'dingtalk-peer-registry-'));
+        shared.listSessionEntriesMock.mockReturnValue([
+            {
+                sessionKey: 'agent:main:dingtalk:group:cidlegacy+abc',
+                entry: {
+                    sessionId: 'legacy-session',
+                    updatedAt: 1000,
+                    lastChannel: 'dingtalk',
+                    lastAccountId: 'main',
+                    lastTo: 'cidLegacy+AbC',
+                },
+            },
+        ]);
+
+        await startGatewayAccount(createStartContext().ctx);
+
+        expect(shared.listSessionEntriesMock).toHaveBeenCalledWith({
+            agentId: 'main',
+            storePath: shared.storePath,
+            readConsistency: 'latest',
+        });
+        expect(resolveOriginalPeerId('cidlegacy+abc')).toBe('cidLegacy+AbC');
+
+        clearPeerIdRegistry();
+        clearTargetDirectoryStateCache();
+        shared.listSessionEntriesMock.mockReturnValue([]);
+        await startGatewayAccount(createStartContext().ctx);
+
+        expect(resolveOriginalPeerId('cidlegacy+abc')).toBe('cidLegacy+AbC');
     });
 
     it('handles abort signal by stopping connection manager and setting stopped status', async () => {

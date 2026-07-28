@@ -16,7 +16,11 @@ import { setCurrentLogger } from "../logger-context";
 import { registerPeerId } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";
 import { sendProactiveTextOrMarkdown } from "../send-service";
-import { listKnownGroupTargets, listKnownUserTargets } from "../targeting/target-directory-store";
+import {
+  listKnownGroupTargets,
+  listKnownUserTargets,
+  upsertObservedGroupTarget,
+} from "../targeting/target-directory-store";
 import type {
   ConnectionManagerConfig,
   DingTalkChannelPlugin,
@@ -182,11 +186,45 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
         baseLog: ctx.log,
       });
       try {
+        const knownGroupIds = new Set<string>();
         for (const group of listKnownGroupTargets({
           storePath: accountStorePath,
           accountId: account.accountId,
         })) {
           registerPeerId(group.conversationId);
+          knownGroupIds.add(group.conversationId.toLowerCase());
+        }
+        for (const { entry } of getDingTalkRuntime().agent.session.listSessionEntries({
+          agentId: account.accountId,
+          storePath: accountStorePath,
+          readConsistency: "latest",
+        })) {
+          const isDingTalkSession = [
+            entry.lastChannel,
+            entry.channel,
+            entry.origin?.provider,
+            entry.origin?.surface,
+          ].some((value) => value === "dingtalk");
+          const sessionAccountId = entry.lastAccountId || entry.origin?.accountId;
+          if (!isDingTalkSession || (sessionAccountId && sessionAccountId !== account.accountId)) {
+            continue;
+          }
+          for (const peerId of [entry.lastTo, entry.origin?.from, entry.origin?.to]) {
+            if (typeof peerId !== "string" || !peerId.startsWith("cid")) {
+              continue;
+            }
+            registerPeerId(peerId);
+            const normalizedPeerId = peerId.toLowerCase();
+            if (!knownGroupIds.has(normalizedPeerId)) {
+              upsertObservedGroupTarget({
+                storePath: accountStorePath,
+                accountId: account.accountId,
+                conversationId: peerId,
+                seenAt: entry.updatedAt,
+              });
+              knownGroupIds.add(normalizedPeerId);
+            }
+          }
         }
         for (const user of listKnownUserTargets({
           storePath: accountStorePath,
