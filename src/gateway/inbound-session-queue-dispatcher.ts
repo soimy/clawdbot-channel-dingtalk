@@ -208,8 +208,10 @@ async function tryPrepareQueueAckCard(
   if (!to) {
     return undefined;
   }
+  let card: AICardInstance | null = null;
+  let ackFinished = false;
   try {
-    const card = await createAICard(dingtalkConfig, to, log, {
+    card = await createAICard(dingtalkConfig, to, log, {
       accountId: input.accountId,
       storePath,
       quoteContent,
@@ -218,7 +220,10 @@ async function tryPrepareQueueAckCard(
       return undefined;
     }
     const { content, finished } = ack();
-    await streamAICard(card, content, finished, log);
+    ackFinished = finished;
+    await streamAICard(card, content, finished, log, {
+      recoveryAction: finished ? "finalize" : "recall",
+    });
     if (!finished) {
       queuedAckVisibleAt.set(card, Date.now());
     }
@@ -240,6 +245,15 @@ async function tryPrepareQueueAckCard(
     );
     return card;
   } catch (err: unknown) {
+    if (card && !ackFinished) {
+      try {
+        await recallAICardMessage(card, log);
+      } catch (recallErr: unknown) {
+        log?.warn?.(
+          `[DingTalk] Failed to recall queue ACK card after prepare failure: ${recallErr instanceof Error ? recallErr.message : String(recallErr)}`,
+        );
+      }
+    }
     log?.warn?.(
       `[DingTalk] Queue-busy ACK card prepare failed: ${err instanceof Error ? err.message : String(err)}`,
     );

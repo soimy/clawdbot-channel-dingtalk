@@ -16,7 +16,53 @@ import { handleDingTalkMessage } from "../../src/inbound-handler";
 describe('inbound session queue recovery and bypass', () => {
   beforeEach(resetInboundSessionQueueIntegrationTest);
   afterEach(cleanupInboundSessionQueueIntegrationTest);
-    it("recalls an unused pre-created queue ACK card after a non-card handler returns", async () => {
+  it("recalls a failed initial queue ACK before falling back to a fresh reply", async () => {
+    shared.extractMessageContentMock.mockImplementation((data: any) => ({
+      text: data?.text?.content,
+      messageType: "text",
+    }));
+    const queuedCard = {
+      cardInstanceId: "card_initial_stream_failure",
+      outTrackId: "track_initial_stream_failure",
+      state: "INPUTING",
+      storePath: STORE_PATH,
+      lastUpdated: Date.now(),
+    };
+    shared.createAICardMock.mockResolvedValue(queuedCard);
+    shared.isCardInTerminalStateMock.mockReturnValue(false);
+    shared.streamAICardMock.mockRejectedValueOnce(new Error("initial stream failed"));
+
+    let releaseFirst: () => void = () => {};
+    let resolveFirstStarted: () => void = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      resolveFirstStarted = resolve;
+    });
+    const first = dispatchInboundViaSessionQueue(
+      queueInput(buildMessage("查询", "msg_initial_stream_active")),
+      async () => {
+        resolveFirstStarted();
+        await firstGate;
+      },
+    );
+    await firstStarted;
+    const handler = vi.fn().mockResolvedValue(undefined);
+    const queued = dispatchInboundViaSessionQueue(
+      queueInput(buildMessage("确认", "msg_initial_stream_queued")),
+      handler,
+    );
+    await vi.waitFor(() => expect(shared.streamAICardMock).toHaveBeenCalled());
+
+    releaseFirst();
+    await Promise.all([first, queued]);
+
+    expect(shared.recallAICardMessageMock).toHaveBeenCalledWith(queuedCard, undefined);
+    expect(handler).toHaveBeenCalledWith(undefined);
+  });
+
+  it("recalls an unused pre-created queue ACK card after a non-card handler returns", async () => {
       shared.extractMessageContentMock.mockImplementation((data: any) => ({
         text: data?.text?.content,
         messageType: "text",
