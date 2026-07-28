@@ -24,7 +24,46 @@ afterEach(() => {
   mockedAxios.put.mockReset();
 });
 
-describe("card-service terminal stream recovery", () => {
+describe("card-service stream recovery", () => {
+  it("retains a recovery record when a non-terminal streaming update fails", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dingtalk-card-stream-"));
+    testDirs.push(dir);
+    const storePath = path.join(dir, "sessions.json");
+    const statePath = resolveNamespacePath("cards.active.pending", {
+      storePath,
+      format: "json",
+    });
+    const card = {
+      accountId: "main",
+      cardInstanceId: "card_non_terminal_stream_failure",
+      outTrackId: "track_non_terminal_stream_failure",
+      conversationId: "cid_non_terminal_stream_failure",
+      storePath,
+      state: AICardStatus.INPUTING,
+      createdAt: Date.now(),
+      lastUpdated: Date.now(),
+      accessToken: "token",
+      config: {},
+      lastStreamedContent: "已排队",
+    } as any;
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({ version: 1, updatedAt: Date.now(), pendingCards: [card] }),
+    );
+    mockedAxios.put.mockRejectedValueOnce(new Error("initial stream failed"));
+
+    await expect(streamAICard(card, "处理中", false)).rejects.toThrow("initial stream failed");
+
+    expect(JSON.parse(fs.readFileSync(statePath, "utf8")).pendingCards).toMatchObject([
+      {
+        cardInstanceId: card.cardInstanceId,
+        state: AICardStatus.FAILED,
+        recoveryAction: "finalize",
+      },
+    ]);
+  });
+
   it("retains a terminal-only recovery record when final streaming fails", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dingtalk-card-terminal-stream-"));
     testDirs.push(dir);

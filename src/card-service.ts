@@ -1246,11 +1246,9 @@ export async function streamAICard(
   } catch (err: any) {
     card.state = AICardStatus.FAILED;
     card.lastUpdated = Date.now();
-    if (finished) {
-      retainPendingCardForTerminalRetry(card, log);
-    } else {
-      removePendingCard(card, log);
-    }
+    // The remote card may still be visible after any update fails. Keep it
+    // recoverable so startup can close it instead of leaving an orphaned card.
+    retainPendingCardForTerminalRetry(card, log);
     if (err.response?.status === 500 && err.response?.data?.code === "unknownError") {
       const errorMsg =
         "⚠️ **[DingTalk] AI Card 串流更新失败 (500 unknownError)**\n\n"
