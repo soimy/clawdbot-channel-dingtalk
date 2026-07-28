@@ -279,6 +279,36 @@ describe('gateway.startAccount lifecycle', () => {
         expect(resolveOriginalPeerId('cidlegacy+abc')).toBe('cidLegacy+AbC');
     });
 
+    it('skips unscoped historical sessions when multiple accounts are configured', async () => {
+        shared.storePath = mkdtempSync(join(tmpdir(), 'dingtalk-peer-registry-'));
+        shared.listSessionEntriesMock.mockReturnValue([
+            {
+                sessionKey: 'agent:main:dingtalk:group:cidunscoped+abc',
+                entry: {
+                    sessionId: 'unscoped-session',
+                    updatedAt: 1000,
+                    lastChannel: 'dingtalk',
+                    lastTo: 'cidUnscoped+AbC',
+                },
+            },
+        ]);
+        const { ctx } = createStartContext();
+        ctx.cfg = {
+            channels: {
+                dingtalk: {
+                    accounts: {
+                        main: {},
+                        secondary: {},
+                    },
+                },
+            },
+        } as any;
+
+        await startGatewayAccount(ctx);
+
+        expect(resolveOriginalPeerId('cidunscoped+abc')).toBe('cidunscoped+abc');
+    });
+
     it('handles abort signal by stopping connection manager and setting stopped status', async () => {
         const controller = new AbortController();
         const { ctx, setStatusCalls } = createStartContext(controller.signal);
