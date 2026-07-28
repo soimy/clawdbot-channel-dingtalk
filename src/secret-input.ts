@@ -1,7 +1,10 @@
-import { readFile } from "node:fs/promises";
-import { hasConfiguredSecretInput as hasConfiguredOpenClawSecretInput } from "openclaw/plugin-sdk/secret-input-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import {
+  hasConfiguredSecretInput as hasConfiguredOpenClawSecretInput,
+  resolveConfiguredSecretInputString,
+} from "openclaw/plugin-sdk/secret-input-runtime";
 import { z } from "zod";
-import { resolveRelativePath } from "./path-utils";
+import { getDingTalkRuntime } from "./runtime";
 
 export type SecretInputRef = {
   source: "env" | "file";
@@ -105,13 +108,15 @@ export function parseSecretInputString(value: unknown): SecretInput | undefined 
 export async function resolveSecretInputString(
   value: unknown,
   log?: SecretInputLog,
+  hostConfig?: OpenClawConfig,
 ): Promise<string | undefined> {
-  return (await resolveSecretInputStringWithFailure(value, log)).value;
+  return (await resolveSecretInputStringWithFailure(value, log, hostConfig)).value;
 }
 
 export async function resolveSecretInputStringWithFailure(
   value: unknown,
   log?: SecretInputLog,
+  hostConfig?: OpenClawConfig,
 ): Promise<{ value?: string; failure?: SecretInputResolutionFailure }> {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -120,34 +125,40 @@ export async function resolveSecretInputStringWithFailure(
   if (!isSecretInputRef(value)) {
     return {};
   }
-  if (value.source === "env") {
-    const envValue = process.env[value.id]?.trim();
-    if (envValue) {
-      return { value: envValue };
+  if (!hostConfig) {
+    try {
+      hostConfig = getDingTalkRuntime().config.current() as OpenClawConfig;
+    } catch {
+      hostConfig = {} as OpenClawConfig;
     }
-    const failure = buildSecretInputFailure(value, "environment variable is not set or is empty");
-    log?.warn?.("[DingTalk][SecretInput] Failed to resolve env secret", {
+  }
+  try {
+    const resolved = await resolveConfiguredSecretInputString({
+      config: hostConfig,
+      env: process.env,
+      value,
+      path: "channels.dingtalk.clientSecret",
+      unresolvedReasonStyle: "detailed",
+    });
+    if (resolved.value) {
+      return { value: resolved.value };
+    }
+    const failure = buildSecretInputFailure(
+      value,
+      resolved.unresolvedRefReason || "secret reference is unresolved",
+    );
+    log?.warn?.("[DingTalk][SecretInput] Failed to resolve secret", {
       provider: value.provider,
       id: value.id,
       error: failure.reason,
     });
     return { failure };
-  }
-  try {
-    // Trust boundary: file SecretInput reads the configured local path. Use it
-    // only with trusted plugin configuration.
-    const filePath = resolveRelativePath(value.id);
-    const secret = (await readFile(filePath, "utf8")).trim();
-    if (secret) {
-      return { value: secret };
-    }
-    return { failure: buildSecretInputFailure(value, "file secret is empty") };
   } catch (error) {
     const failure = buildSecretInputFailure(
       value,
       error instanceof Error ? error.message : String(error),
     );
-    log?.warn?.("[DingTalk][SecretInput] Failed to read file secret", {
+    log?.warn?.("[DingTalk][SecretInput] Failed to resolve secret", {
       provider: value.provider,
       id: value.id,
       error: failure.reason,

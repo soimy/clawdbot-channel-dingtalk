@@ -13,8 +13,10 @@ import {
 } from "../feedback-learning-service";
 import { handleDingTalkMessage } from "../inbound-handler";
 import { setCurrentLogger } from "../logger-context";
+import { registerPeerId } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";
 import { sendProactiveTextOrMarkdown } from "../send-service";
+import { listKnownGroupTargets, listKnownUserTargets } from "../targeting/target-directory-store";
 import type {
   ConnectionManagerConfig,
   DingTalkChannelPlugin,
@@ -179,6 +181,26 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
         debug: config.debug,
         baseLog: ctx.log,
       });
+      try {
+        for (const group of listKnownGroupTargets({
+          storePath: accountStorePath,
+          accountId: account.accountId,
+        })) {
+          registerPeerId(group.conversationId);
+        }
+        for (const user of listKnownUserTargets({
+          storePath: accountStorePath,
+          accountId: account.accountId,
+        })) {
+          registerPeerId(user.canonicalUserId);
+          registerPeerId(user.staffId || "");
+          registerPeerId(user.senderId);
+        }
+      } catch (err: unknown) {
+        pluginLog?.warn?.(
+          `[${account.accountId}] Failed to restore peer IDs: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       // Stream credentials are resolved once per account start. If a file
       // SecretInput rotates, restart the gateway/account so reconnects use the
       // new secret.

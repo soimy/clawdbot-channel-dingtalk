@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shared = vi.hoisted(() => ({
     connectMock: vi.fn(),
@@ -13,6 +16,7 @@ const shared = vi.hoisted(() => ({
     clientConnectMock: vi.fn(),
     clientDisconnectMock: vi.fn(),
     dwClientConfig: undefined as any,
+    storePath: undefined as string | undefined,
 }));
 
 vi.mock('openclaw/plugin-sdk/core', () => ({
@@ -78,6 +82,13 @@ vi.mock('../../src/utils', async () => {
 });
 
 import { dingtalkPlugin } from '../../src/channel';
+import { clearPeerIdRegistry, resolveOriginalPeerId } from '../../src/peer-id-registry';
+import { setDingTalkRuntime } from '../../src/runtime';
+import {
+    clearTargetDirectoryStateCache,
+    upsertObservedGroupTarget,
+    upsertObservedUserTarget,
+} from '../../src/targeting/target-directory-store';
 
 const startGatewayAccount = (ctx: any): Promise<any> => dingtalkPlugin.gateway!.startAccount!(ctx as any);
 
@@ -130,6 +141,7 @@ describe('gateway.startAccount lifecycle', () => {
         shared.clientConnectMock.mockReset();
         shared.clientDisconnectMock.mockReset();
         shared.dwClientConfig = undefined;
+        shared.storePath = undefined;
 
         shared.connectMock.mockResolvedValue(undefined);
         shared.waitForStopMock.mockResolvedValue(undefined);
@@ -137,6 +149,22 @@ describe('gateway.startAccount lifecycle', () => {
         shared.clientGetEndpointMock.mockResolvedValue(undefined);
         shared.clientConnectMock.mockResolvedValue(undefined);
         shared.resolvePluginDebugLogMock.mockImplementation(({ baseLog }: any) => baseLog);
+        setDingTalkRuntime({
+            config: { current: () => ({}) },
+            channel: {
+                session: {
+                    resolveStorePath: () => shared.storePath,
+                },
+            },
+        } as any);
+        clearPeerIdRegistry();
+        clearTargetDirectoryStateCache();
+    });
+
+    afterEach(() => {
+        if (shared.storePath) {
+            rmSync(shared.storePath, { recursive: true, force: true });
+        }
     });
 
     it('fails fast when abortSignal is already aborted before start', async () => {
@@ -173,6 +201,29 @@ describe('gateway.startAccount lifecycle', () => {
         }));
         expect(shared.stopMock).toHaveBeenCalledTimes(1);
         expect(setStatusCalls.some((s) => s.running === false && s.lastStopAt !== null)).toBe(true);
+    });
+
+    it('restores case-sensitive peer IDs from the persisted target directory', async () => {
+        shared.storePath = mkdtempSync(join(tmpdir(), 'dingtalk-peer-registry-'));
+        upsertObservedGroupTarget({
+            storePath: shared.storePath,
+            accountId: 'main',
+            conversationId: 'CidGroup+AbC',
+        });
+        upsertObservedUserTarget({
+            storePath: shared.storePath,
+            accountId: 'main',
+            senderId: 'UnionUser+XyZ',
+            staffId: 'StaffUser+XyZ',
+        });
+        clearPeerIdRegistry();
+        clearTargetDirectoryStateCache();
+
+        await startGatewayAccount(createStartContext().ctx);
+
+        expect(resolveOriginalPeerId('cidgroup+abc')).toBe('CidGroup+AbC');
+        expect(resolveOriginalPeerId('unionuser+xyz')).toBe('UnionUser+XyZ');
+        expect(resolveOriginalPeerId('staffuser+xyz')).toBe('StaffUser+XyZ');
     });
 
     it('handles abort signal by stopping connection manager and setting stopped status', async () => {

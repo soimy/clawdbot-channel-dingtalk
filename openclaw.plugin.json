@@ -63,7 +63,7 @@
                 }
               }
             ],
-            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file. Security boundary: file reads the configured local path; use file only with trusted plugin configuration."
+            "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports env/file SecretInput references resolved by configured OpenClaw secret providers."
           },
           "dmPolicy": {
             "type": "string",
@@ -369,7 +369,7 @@
                       }
                     }
                   ],
-                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports SecretInput references such as env/file. Security boundary: file reads the configured local path; use file only with trusted plugin configuration."
+                  "description": "DingTalk App Secret (Client Secret) used to obtain DingTalk access tokens. Supports env/file SecretInput references resolved by configured OpenClaw secret providers."
                 },
                 "dmPolicy": {
                   "type": "string",
@@ -655,7 +655,7 @@
         },
         "clientSecret": {
           "label": "DingTalk Client Secret",
-          "help": "App Secret used to obtain DingTalk access tokens. SecretInput file references are for trusted plugin configuration because file reads a local path.",
+          "help": "App Secret used to obtain DingTalk access tokens. SecretInput references are resolved by configured OpenClaw secret providers.",
           "sensitive": true
         },
         "dmPolicy": {

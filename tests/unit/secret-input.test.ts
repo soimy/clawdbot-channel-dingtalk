@@ -97,39 +97,69 @@ describe("SecretInput support", () => {
     await writeFile(secretPath, "secret-from-file\n", "utf8");
 
     await expect(
-      resolveSecretInputString({
-        source: "file",
-        provider: "local",
-        id: secretPath,
-      }),
+      resolveSecretInputString(
+        {
+          source: "file",
+          provider: "local",
+          id: "value",
+        },
+        undefined,
+        {
+          secrets: {
+            providers: {
+              local: {
+                source: "file",
+                path: secretPath,
+                mode: "singleValue",
+                allowInsecurePath: true,
+              },
+            },
+          },
+        } as any,
+      ),
     ).resolves.toBe("secret-from-file");
   });
 
   it("reports env SecretInput resolution failures with source context", async () => {
-    const result = await resolveSecretInputStringWithFailure({
-      source: "env",
-      provider: "env",
-      id: "DINGTALK_MISSING_SECRET",
-    });
+    const result = await resolveSecretInputStringWithFailure(
+      {
+        source: "env",
+        provider: "env",
+        id: "DINGTALK_MISSING_SECRET",
+      },
+      undefined,
+      {
+        secrets: {
+          providers: {
+            env: { source: "env", allowlist: ["DINGTALK_MISSING_SECRET"] },
+          },
+        },
+      } as any,
+    );
 
     expect(result.value).toBeUndefined();
     expect(result.failure).toEqual({
       source: "env",
       provider: "env",
       id: "DINGTALK_MISSING_SECRET",
-      reason: "environment variable is not set or is empty",
+      reason:
+        "channels.dingtalk.clientSecret SecretRef is unresolved (env:env:DINGTALK_MISSING_SECRET).",
     });
     expect(formatSecretInputResolutionFailure(result.failure!)).toBe(
-      "env:env:DINGTALK_MISSING_SECRET - environment variable is not set or is empty",
+      "env:env:DINGTALK_MISSING_SECRET - channels.dingtalk.clientSecret SecretRef is unresolved (env:env:DINGTALK_MISSING_SECRET).",
     );
   });
 
-  it("reports file SecretInput resolution failures with source context", async () => {
-    const result = await resolveSecretInputStringWithFailure({
-      source: "file",
-      provider: "local",
-      id: "/missing-dingtalk-secret",
-    });
+  it("does not treat a file SecretInput id as a local path", async () => {
+    const result = await resolveSecretInputStringWithFailure(
+      {
+        source: "file",
+        provider: "local",
+        id: "/missing-dingtalk-secret",
+      },
+      undefined,
+      {} as any,
+    );
 
     expect(result.value).toBeUndefined();
     expect(result.failure).toMatchObject({
@@ -137,7 +167,7 @@ describe("SecretInput support", () => {
       provider: "local",
       id: "/missing-dingtalk-secret",
     });
-    expect(result.failure?.reason).toContain("ENOENT");
+    expect(result.failure?.reason).toContain("SecretRef is unresolved");
   });
 
   it("parses normalized SecretInput strings back into object refs", () => {

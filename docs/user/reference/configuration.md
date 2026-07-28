@@ -71,8 +71,8 @@ SecretInput 对象字段：
 | 字段 | 说明 |
 | --- | --- |
 | `source` | 密钥来源：`env` 或 `file` |
-| `provider` | 来源提供者。`env` 通常写 `env`；`file` 可写 `local` |
-| `id` | 密钥标识。`env` 为环境变量名；`file` 为本地文件路径 |
+| `provider` | `secrets.providers` 中已配置的宿主 provider 名称 |
+| `id` | provider 内的密钥标识；`env` 为允许的环境变量名，`file` 的 `singleValue` 模式固定为 `value` |
 
 > **注意**：v3.6.2 起，`source` 只支持 `env` 和 `file`，不再支持 `exec`（已移除进程执行路径以通过 OpenClaw 安装安全扫描）。
 
@@ -80,19 +80,19 @@ SecretInput 对象字段：
 
 - `provider` 不能为空，最长 `1024` 字符，不能包含 `:` 或 `>`
 - `id` 不能为空，最长 `1024` 字符，不能包含 `>`
-- `file` 的 `id` 支持 `~` 与相对路径解析
+- provider 的路径、权限和允许范围由 OpenClaw 宿主配置管理
 
 解析时机：
 
 - 获取 DingTalk access token 时，如果 token 缓存未命中，会解析 `clientSecret`
 - 启动 Stream 连接时，会为每个账号解析一次运行时凭据
-- 状态展示、配置向导展示等路径只显示规范化引用，不会读取文件
-- `env` 引用会在配置态检查时确认环境变量是否存在；`file` 为避免副作用，只在运行时解析
+- 状态展示、配置向导展示等路径只显示规范化引用，不会解析密钥
+- 运行时解析统一委托给 OpenClaw SecretInput provider
 
 安全边界：
 
-- `file` 会读取配置中指定的本地路径
-- 仅在受信任的插件配置环境中使用 `file`
+- 插件不会把 SecretInput 的 `id` 当作环境变量或本地路径直接读取
+- 环境变量 allowlist、文件路径和访问策略由 `secrets.providers` 控制
 
 如果 SecretInput 解析失败，插件会在发起 DingTalk API 请求前抛出本地错误，并在日志中带上 `source` / `provider` / `id` / 失败原因，方便定位配置问题。
 

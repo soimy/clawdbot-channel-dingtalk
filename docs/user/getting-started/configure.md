@@ -55,6 +55,14 @@ openclaw configure --section channels
 
 ```json5
 {
+  "secrets": {
+    "providers": {
+      "env": {
+        "source": "env",
+        "allowlist": ["DINGTALK_CLIENT_SECRET"]
+      }
+    }
+  },
   "channels": {
     "dingtalk": {
       "clientId": "dingxxxxxx",
@@ -72,20 +80,29 @@ openclaw configure --section channels
 
 ```json5
 {
+  "secrets": {
+    "providers": {
+      "local": {
+        "source": "file",
+        "path": "~/.config/openclaw/dingtalk-client-secret",
+        "mode": "singleValue"
+      }
+    }
+  },
   "channels": {
     "dingtalk": {
       "clientId": "dingxxxxxx",
       "clientSecret": {
         "source": "file",
         "provider": "local",
-        "id": "~/.config/openclaw/dingtalk-client-secret"
+        "id": "value"
       }
     }
   }
 }
 ```
 
-`file` 会读取 `id` 指定的本地路径，应只用于受信任的本机配置。修改 SecretInput 指向的文件后，建议重启 gateway，让 Stream 连接使用新的凭据。
+插件把 SecretInput 交给 OpenClaw 宿主解析；文件路径来自 `secrets.providers`，不会把 `clientSecret.id` 当作路径读取。修改 provider 指向的文件后，建议重启 gateway，让 Stream 连接使用新的凭据。
 
 卡片模式示例：
 

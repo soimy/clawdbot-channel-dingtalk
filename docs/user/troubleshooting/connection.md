@@ -16,7 +16,7 @@ Windows PowerShell：
 pwsh -File scripts/dingtalk-connection-check.ps1 -Config ~/.openclaw/openclaw.json
 ```
 
-如果配置中的 `clientSecret` 使用 SecretInput 引用，连接检查脚本不会代替插件读取文件。排查连接时请先在当前 shell 中解析出真实 secret，再用 `--client-id` / `--client-secret` 或 `-ClientId` / `-ClientSecret` 显式传入；插件运行时仍会按配置中的 SecretInput 规则自行解析。
+如果配置中的 `clientSecret` 使用 SecretInput 引用，连接检查脚本不会代替 OpenClaw 宿主解析密钥。排查连接时请先在当前 shell 中解析出真实 secret，再用 `--client-id` / `--client-secret` 或 `-ClientId` / `-ClientSecret` 显式传入；插件运行时会把引用交给宿主配置的 SecretInput provider。
 
 ## 关键后台检查项
 
