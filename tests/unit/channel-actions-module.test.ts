@@ -52,7 +52,7 @@ describe("createDingTalkMessageActions", () => {
         shared.resolveOriginalPeerIdMock.mockReset().mockImplementation((targetId: string) => targetId);
     });
 
-    it("describes card capability when card mode is enabled", () => {
+    it("describes the send action using current SDK capabilities", () => {
         const actions = createDingTalkMessageActions();
 
         expect(
@@ -61,12 +61,12 @@ describe("createDingTalkMessageActions", () => {
             } as any),
         ).toEqual({
             actions: ["send"],
-            capabilities: ["cards"],
+            capabilities: [],
             schema: null,
         });
     });
 
-    it("does not expose send actions when env SecretInput is missing", () => {
+    it("exposes send actions for a configured SecretInput reference without resolving it", () => {
         const actions = createDingTalkMessageActions();
 
         expect(
@@ -85,7 +85,7 @@ describe("createDingTalkMessageActions", () => {
                 },
             } as any),
         ).toEqual({
-            actions: [],
+            actions: ["send"],
             capabilities: [],
             schema: null,
         });

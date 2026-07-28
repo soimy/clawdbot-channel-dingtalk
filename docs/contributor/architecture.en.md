@@ -242,16 +242,15 @@ These boundaries are already established and should be preserved.
 Purpose:
 
 - Restore original case-sensitive DingTalk peer IDs when an upstream session key or input has been lowercased.
-- Warm the in-memory registry from existing `sessions.json` data.
 
 It is responsible for:
 
 - `lowercased-id -> original-id` restoration
 - In-memory registration of observed IDs
-- One-time preload from session files
 
 It is not responsible for:
 
+- Reading OpenClaw agent session files
 - Group display name lookup
 - Manual alias storage
 - `conversationId -> title` directory state

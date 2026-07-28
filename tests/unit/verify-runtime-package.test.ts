@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -51,6 +51,28 @@ exec("open https://example.com");
                 stdio: ["ignore", "pipe", "pipe"],
             });
         }).toThrow("Runtime package must not include process execution calls");
+    });
+
+    it("rejects source maps in the published package", () => {
+        const packageDir = createRuntimePackageFixture("export {};\n");
+        writeFile(join(packageDir, "dist/index.js.map"), "{}\n");
+        const packageJson = JSON.parse(
+            readFileSync(join(packageDir, "package.json"), "utf8"),
+        ) as { files: string[] };
+        packageJson.files.push("dist/**/*.map");
+        writeJson(join(packageDir, "package.json"), packageJson);
+
+        expect(() => {
+            execFileSync(process.execPath, [scriptPath], {
+                cwd: packageDir,
+                encoding: "utf8",
+                env: {
+                    ...process.env,
+                    npm_config_cache: join(packageDir, ".npm-cache"),
+                },
+                stdio: ["ignore", "pipe", "pipe"],
+            });
+        }).toThrow("Runtime package must not include source maps");
     });
 
     function createRuntimePackageFixture(runtimeCode: string): string {

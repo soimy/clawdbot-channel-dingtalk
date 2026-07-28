@@ -130,7 +130,7 @@ describe("plugin manifest channel metadata", () => {
         );
     });
 
-    it("raises the minimum OpenClaw version to the first manifest channelConfigs release", () => {
+    it("keeps the OpenClaw compatibility metadata on the current SDK baseline", () => {
         const packageJson = readJsonFile<{
             peerDependencies?: Record<string, string>;
             openclaw?: {
@@ -140,9 +140,9 @@ describe("plugin manifest channel metadata", () => {
             };
         }>("package.json");
 
-        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.3.28");
-        expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.3.28");
-        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.3.28");
-        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.3.28");
+        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.7.1-2");
+        expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.7.1-2");
+        expect(packageJson.openclaw?.build?.openclawVersion).toBe("2026.7.1-2");
+        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.7.1-2");
     });
 });

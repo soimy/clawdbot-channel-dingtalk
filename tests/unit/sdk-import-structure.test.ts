@@ -77,7 +77,7 @@ describe("plugin-sdk import structure", () => {
         expect(content).not.toMatch(/function\s+resolveNativeCommandSessionTargets\s*\(/);
     });
 
-    it("does not keep openclaw in devDependencies where plugin install omits it", () => {
+    it("pins the build SDK while keeping runtime host compatibility explicit", () => {
         const packageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
             devDependencies?: Record<string, string>;
             peerDependencies?: Record<string, string>;
@@ -87,9 +87,9 @@ describe("plugin-sdk import structure", () => {
                 };
             };
         };
-        expect(packageJson.devDependencies?.openclaw).toBeUndefined();
+        expect(packageJson.devDependencies?.openclaw).toBe("2026.7.1-2");
         expect(packageJson.peerDependencies?.openclaw).toBeDefined();
-        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.3.28");
-        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.3.28");
+        expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.7.1-2");
+        expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.7.1-2");
     });
 });

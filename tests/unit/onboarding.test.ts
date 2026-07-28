@@ -65,7 +65,7 @@ describe("dingtalk setup wizard", () => {
         expect(configured).toBe(false);
     });
 
-    it("status treats a missing env SecretInput as unconfigured", async () => {
+    it("status treats a valid env SecretInput reference as configured without resolving it", async () => {
         delete process.env.DINGTALK_MISSING_SETUP_SECRET;
 
         const configured = await dingtalkSetupWizard.status.resolveConfigured({
@@ -83,7 +83,7 @@ describe("dingtalk setup wizard", () => {
             } as any,
         });
 
-        expect(configured).toBe(false);
+        expect(configured).toBe(true);
     });
 
     it("allows adding a named account during setup", async () => {

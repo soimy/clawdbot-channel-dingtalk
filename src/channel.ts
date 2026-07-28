@@ -1,6 +1,7 @@
-import { buildChannelConfigSchema, type OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { buildJsonChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import pluginManifest from "../openclaw.plugin.json";
 import { getConfig, isConfigured, mergeAccountWithDefaults, resolveGroupConfig } from "./config";
-import { DingTalkConfigSchema } from "./config-schema.js";
 import {
   CHANNEL_INFLIGHT_NAMESPACE_POLICY,
   createDingTalkGateway,
@@ -29,7 +30,7 @@ export const dingtalkPlugin: DingTalkChannelPlugin = {
     blurb: "钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。",
     aliases: ["dd", "ding"],
   },
-  configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
+  configSchema: buildJsonChannelConfigSchema(pluginManifest.channelConfigs.dingtalk.schema),
   setup: dingtalkSetupAdapter,
   setupWizard: dingtalkSetupWizard,
   capabilities: {

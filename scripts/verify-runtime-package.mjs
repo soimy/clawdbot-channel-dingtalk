@@ -11,9 +11,13 @@ const files = new Set(
 );
 const requiredFiles = ["dist/index.js", "dist/index.d.ts", "openclaw.plugin.json"];
 const missingFiles = requiredFiles.filter((file) => !files.has(file));
+const sourceMaps = [...files].filter((file) => file.endsWith(".map"));
 
 if (missingFiles.length > 0) {
     throw new Error(`Runtime package is missing required file(s): ${missingFiles.join(", ")}`);
+}
+if (sourceMaps.length > 0) {
+    throw new Error(`Runtime package must not include source maps: ${sourceMaps.join(", ")}`);
 }
 
 const runtime = readFileSync("dist/index.js", "utf8");

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { hasConfiguredSecretInput as hasConfiguredOpenClawSecretInput } from "openclaw/plugin-sdk/secret-input-runtime";
 import { z } from "zod";
 import { resolveRelativePath } from "./path-utils";
 
@@ -68,19 +69,7 @@ export function isSecretInputRef(value: unknown): value is SecretInputRef {
 }
 
 export function hasConfiguredSecretInput(value: unknown): boolean {
-  if (typeof value === "string") {
-    return value.trim().length > 0;
-  }
-  if (!isSecretInputRef(value)) {
-    return false;
-  }
-  if (value.source === "env") {
-    return Boolean(process.env[value.id]?.trim());
-  }
-  // File references are considered configured when the reference shape is
-  // present. The actual filesystem lookup happens at runtime so status checks
-  // can stay side-effect free.
-  return true;
+  return hasConfiguredOpenClawSecretInput(value);
 }
 
 export function normalizeSecretInputString(value: unknown): string | undefined {

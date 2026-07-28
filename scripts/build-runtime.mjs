@@ -11,7 +11,7 @@ await build({
     outfile: "dist/index.js",
     packages: "external",
     platform: "node",
-    sourcemap: true,
+    sourcemap: false,
     target: "node22",
     tsconfigRaw: {
         compilerOptions: {

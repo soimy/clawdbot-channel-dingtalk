@@ -242,16 +242,15 @@ src/
 用途：
 
 - 当上游 session key 或输入把 DingTalk peer ID 小写化后，恢复其原始大小写
-- 从已有 `sessions.json` 预热内存注册表
 
 负责：
 
 - `lowercased-id -> original-id` 恢复
 - 观测到的 ID 的内存注册
-- 从 session 文件做一次性 preload
 
 不负责：
 
+- 读取 OpenClaw agent session 文件
 - 群显示名查找
 - 人工 alias 存储
 - `conversationId -> title` 目录状态

@@ -55,12 +55,9 @@ function describeDingTalkMessageTool(cfg: OpenClawConfig) {
   if (!configured && !(config.accounts && Object.keys(config.accounts).length > 0)) {
     return { actions: [], capabilities: [], schema: null };
   }
-  const hasCardMode =
-    config.messageType === "card" ||
-    (config.accounts && Object.values(config.accounts).some((account) => account?.messageType === "card"));
   return {
     actions: ["send"] as const,
-    capabilities: hasCardMode ? (["cards"] as const) : [],
+    capabilities: [],
     schema: null,
   };
 }

@@ -1,4 +1,8 @@
-import { defineChannelPluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import {
+  defineChannelPluginEntry,
+  type OpenClawPluginApi,
+  type OpenClawPluginDefinition,
+} from "openclaw/plugin-sdk/core";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { getAccessToken } from "./src/auth";
 import { registerDingTalkAskUserQuestionTool } from "./src/card/ask-user-question";
@@ -311,7 +315,7 @@ const dingtalkEntry = defineChannelPluginEntry({
   },
 });
 
-export default {
+const pluginDefinition: OpenClawPluginDefinition = {
   ...dingtalkEntry,
   register(api: OpenClawPluginApi) {
     const registrationMode = api.registrationMode as string | undefined;
@@ -325,3 +329,5 @@ export default {
     dingtalkEntry.register(api);
   },
 };
+
+export default pluginDefinition;

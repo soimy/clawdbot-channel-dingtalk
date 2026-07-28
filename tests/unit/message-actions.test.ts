@@ -136,14 +136,14 @@ describe('dingtalkPlugin.actions.send', () => {
         expect(sendProactiveMediaMock).not.toHaveBeenCalled();
     });
 
-    it('describes message tool with send action and card capability when card mode is enabled', () => {
+    it('describes message tool with the current SDK send capability contract', () => {
         expect(
             dingtalkPlugin.actions?.describeMessageTool?.({
                 cfg: cardCfg as any,
             } as any),
         ).toEqual({
             actions: ['send'],
-            capabilities: ['cards'],
+            capabilities: [],
             schema: null,
         });
     });

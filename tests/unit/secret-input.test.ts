@@ -68,9 +68,7 @@ describe("SecretInput support", () => {
     );
   });
 
-  it("treats env SecretInput as configured only when the env value exists", () => {
-    process.env.DINGTALK_TEST_SECRET = "sec-from-env";
-
+  it("treats valid SecretInput references as configured without reading them", () => {
     expect(
       isConfigured({
         channels: {
@@ -90,7 +88,7 @@ describe("SecretInput support", () => {
           },
         },
       } as any),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("resolves file SecretInput values from a local file", async () => {

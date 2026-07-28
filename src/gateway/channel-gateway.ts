@@ -13,7 +13,6 @@ import {
 } from "../feedback-learning-service";
 import { handleDingTalkMessage } from "../inbound-handler";
 import { setCurrentLogger } from "../logger-context";
-import { preloadPeerIdsFromSessions } from "../peer-id-registry";
 import { getDingTalkRuntime } from "../runtime";
 import { sendProactiveTextOrMarkdown } from "../send-service";
 import type {
@@ -187,9 +186,6 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
       setCurrentLogger(pluginLog, account.accountId);
 
       pluginLog?.info?.(`[${account.accountId}] Initializing DingTalk Stream client...`);
-
-      preloadPeerIdsFromSessions();
-      pluginLog?.debug?.(`[${account.accountId}] Peer ID registry preloaded from sessions`);
 
       cleanupOrphanedTempFiles(pluginLog);
       try {
