@@ -196,10 +196,6 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
           knownGroupIds.add(group.conversationId.toLowerCase());
         }
         const runtime = getDingTalkRuntime();
-        const hasMultipleAccounts =
-          Object.keys(
-            (cfg.channels?.dingtalk as { accounts?: Record<string, unknown> })?.accounts ?? {},
-          ).length > 1;
         for (const agentId of listAgentIds(cfg)) {
           const sessionStorePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
             agentId,
@@ -216,11 +212,7 @@ export function createDingTalkGateway(): NonNullable<DingTalkChannelPlugin["gate
               entry.origin?.surface,
             ].some((value) => value === "dingtalk");
             const sessionAccountId = entry.lastAccountId || entry.origin?.accountId;
-            if (
-              !isDingTalkSession ||
-              (!sessionAccountId && hasMultipleAccounts) ||
-              (sessionAccountId && sessionAccountId !== account.accountId)
-            ) {
+            if (!isDingTalkSession || sessionAccountId !== account.accountId) {
               continue;
             }
             for (const peerId of [entry.lastTo, entry.origin?.from, entry.origin?.to]) {

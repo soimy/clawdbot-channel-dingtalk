@@ -279,7 +279,7 @@ describe('gateway.startAccount lifecycle', () => {
         expect(resolveOriginalPeerId('cidlegacy+abc')).toBe('cidLegacy+AbC');
     });
 
-    it('skips unscoped historical sessions when multiple accounts are configured', async () => {
+    it('skips historical sessions without an account ID', async () => {
         shared.storePath = mkdtempSync(join(tmpdir(), 'dingtalk-peer-registry-'));
         shared.listSessionEntriesMock.mockReturnValue([
             {
@@ -292,19 +292,8 @@ describe('gateway.startAccount lifecycle', () => {
                 },
             },
         ]);
-        const { ctx } = createStartContext();
-        ctx.cfg = {
-            channels: {
-                dingtalk: {
-                    accounts: {
-                        main: {},
-                        secondary: {},
-                    },
-                },
-            },
-        } as any;
 
-        await startGatewayAccount(ctx);
+        await startGatewayAccount(createStartContext().ctx);
 
         expect(resolveOriginalPeerId('cidunscoped+abc')).toBe('cidunscoped+abc');
     });
