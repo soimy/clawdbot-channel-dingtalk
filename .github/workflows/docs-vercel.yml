@@ -73,7 +73,7 @@ jobs:
         if: steps.vercel-secrets.outputs.available == 'true'
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22.22.3"
           cache: "pnpm"
 
       - name: Install dependencies
