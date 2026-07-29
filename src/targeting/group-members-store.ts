@@ -6,8 +6,12 @@ const GROUP_MEMBERS_NAMESPACE = "members.group-roster";
 
 function groupMembersFilePath(storePath: string, groupId: string): string {
   const dir = path.join(path.dirname(storePath), "dingtalk-members");
-  const safeId = groupId.replace(/\+/g, "-").replace(/\//g, "_");
-  return path.join(dir, `${safeId}.json`);
+  const safeId = groupId
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/\.\.+/g, "_");
+  return path.join(dir, `${safeId || "_"}.json`);
 }
 
 function readLegacyRoster(storePath: string, groupId: string): Record<string, string> | null {

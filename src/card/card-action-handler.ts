@@ -43,17 +43,19 @@ export async function handleCardAction(params: {
     return { handled: false };
   }
 
-  // In group chats, only the user who initiated the conversation can stop it.
-  // Fail-closed: reject when clicker identity is missing but owner is known.
   const clickerUserId = params.analysis.userId;
   const record = resolveCardRun(outTrackId);
-  if (record?.ownerUserId) {
-    if (!clickerUserId || record.ownerUserId !== clickerUserId) {
-      params.log?.info?.(
-        `[${params.accountId}] [DingTalk][CardStop] rejected: clicker=${clickerUserId ?? "unknown"} owner=${record.ownerUserId}`,
-      );
-      return { handled: true };
-    }
+  if (!record?.ownerUserId) {
+    params.log?.warn?.(
+      `[${params.accountId}] [DingTalk][CardStop] security rejection: missing owner binding outTrackId=${outTrackId}`,
+    );
+    return { handled: true };
+  }
+  if (!clickerUserId || record.ownerUserId !== clickerUserId) {
+    params.log?.info?.(
+      `[${params.accountId}] [DingTalk][CardStop] rejected: clicker=${clickerUserId ?? "unknown"} owner=${record.ownerUserId}`,
+    );
+    return { handled: true };
   }
 
   const result = await stopCardRun({
