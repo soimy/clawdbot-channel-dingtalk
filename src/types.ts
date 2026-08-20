@@ -13,7 +13,7 @@ import type {
   ChannelAccountSnapshot as SDKChannelAccountSnapshot,
   ChannelGatewayContext as SDKChannelGatewayContext,
   ChannelLogSink as SDKChannelLogSink,
-} from "openclaw/plugin-sdk/channel-runtime";
+} from "openclaw/plugin-sdk/channel-contract";
 import type { ChannelPlugin as SDKChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
 import type { SecretInput } from "./secret-input";
