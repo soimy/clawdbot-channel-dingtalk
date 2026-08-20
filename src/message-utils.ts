@@ -106,6 +106,35 @@ function extractRichTextQuoteParts(
   };
 }
 
+function extractCardContentText(cardContent: unknown): string | undefined {
+  if (!Array.isArray(cardContent)) {
+    return undefined;
+  }
+  const collected: string[] = [];
+  const walk = (nodes: unknown): void => {
+    if (!Array.isArray(nodes)) {
+      return;
+    }
+    for (const node of nodes) {
+      if (node === null || typeof node !== "object" || Array.isArray(node)) {
+        continue;
+      }
+      const element = node as { elementType?: unknown; value?: unknown; children?: unknown };
+      if (element.elementType === "TEXT" && typeof element.value === "string") {
+        collected.push(element.value);
+      }
+      walk(element.children);
+    }
+  };
+  walk(cardContent);
+  const text = collected
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return text.length > 0 ? text : undefined;
+}
+
 function extractAtMentionsFromText(text: string): AtMention[] {
   const mentions: AtMention[] = [];
   const matches = text.matchAll(/(?<!\w)@([^\s@.]+)(?!\.\w)/g);
@@ -321,7 +350,9 @@ function buildRepliedMessagePreview(params: {
         cardCreatedAt: repliedMsg.createdAt,
         processQueryKey: trimString(data.originalProcessQueryKey),
         previewText:
-          trimString(content?.text) || buildQuotedMessageTypePlaceholder("interactiveCard"),
+          trimString(content?.text) ||
+          extractCardContentText(content?.cardContent) ||
+          buildQuotedMessageTypePlaceholder("interactiveCard"),
         previewMessageType: "interactiveCard",
         previewSenderId: trimString(repliedMsg.senderId),
       };
@@ -332,6 +363,7 @@ function buildRepliedMessagePreview(params: {
       fileCreatedAt: repliedMsg.createdAt,
       previewText:
         trimString(content?.text) ||
+        extractCardContentText(content?.cardContent) ||
         buildQuotedMessageTypePlaceholder(docMeta ? "interactiveCardFile" : "interactiveCard"),
       previewMessageType: docMeta ? "interactiveCardFile" : "interactiveCard",
       previewSenderId: trimString(repliedMsg.senderId),
@@ -351,6 +383,7 @@ function buildRepliedMessagePreview(params: {
 
   const textPreview =
     trimString(content?.text) ||
+    trimString(content?.content) ||
     trimString(richTextQuote?.summary) ||
     buildQuotedMessageTypePlaceholder(repliedMsgType, fileName);
 
@@ -636,7 +669,7 @@ export function extractMessageContent(data: DingTalkInboundMessage): MessageCont
       }
 
       // No msgType — backward compat: extract text or richText from content.
-      if (content?.text?.trim()) {
+      if (trimString(content?.text) || trimString(content?.content)) {
         return repliedMsgId ? { msgId: repliedMsgId, ...repliedPreview } : null;
       }
 
