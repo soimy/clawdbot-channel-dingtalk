@@ -2,7 +2,7 @@ import fs from "node:fs";
 import * as path from "node:path";
 import { formatInboundEnvelope } from "openclaw/plugin-sdk/channel-inbound";
 import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
-import { parseInlineDirectives } from "./inline-directives";
+import { parseInlineDirectives } from "./messaging/inline-directives";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
