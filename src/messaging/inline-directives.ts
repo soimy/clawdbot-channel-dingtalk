@@ -71,8 +71,10 @@ function resolveCodeRegions(text: string): CodeRegion[] {
 }
 
 function mergeCodeRegions(regions: CodeRegion[]): CodeRegion[] {
-  if (regions.length <= 1) return regions;
-  const sorted = [...regions].sort((a, b) => a.start - b.start || a.end - b.end);
+  if (regions.length <= 1) {
+    return regions;
+  }
+  const sorted = [...regions].toSorted((a, b) => a.start - b.start || a.end - b.end);
   const merged: CodeRegion[] = [];
   for (const region of sorted) {
     const last = merged[merged.length - 1];
@@ -101,7 +103,9 @@ function normalizeDirectiveWhitespace(text: string, codeRegions: CodeRegion[] = 
   let masked = "";
   let cursor = 0;
   for (const region of codeRegions) {
-    if (region.start < cursor) continue;
+    if (region.start < cursor) {
+      continue;
+    }
     blocks.push(text.slice(region.start, region.end));
     masked += `${text.slice(cursor, region.start)}${blockSentinel}${blocks.length - 1}${blockSentinel}`;
     cursor = region.end;
