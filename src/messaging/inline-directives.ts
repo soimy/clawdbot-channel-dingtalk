@@ -14,6 +14,15 @@
  * `findCodeRegions` / `isInsideCode` (available since 2026.7.1-2), plus a
  * lenient indented-block fallback matching the host whitespace normalizer so
  * directives inside code are never treated as real voice/reply commands.
+ *
+ * The shipped 2026.7.1-2 SDK `findCodeRegions` is a simplified heuristic: it
+ * pairs backtick runs of different lengths, lets shorter fences close longer
+ * ones, treats escaped backticks as real delimiters, and pairs backticks
+ * inside indented code with prose. `findDelimiterCodeRegions` therefore layers
+ * a CommonMark-style fence/inline-code supplement over the SDK regions (union,
+ * conservative: in doubt the text stays literal) so protection holds on every
+ * supported host. Ponytail: remove the supplement once the minimum host is
+ * 2026.8+ and its SDK regions are verified to cover these cases.
  */
 
 import { findCodeRegions, isInsideCode, type CodeRegion } from "openclaw/plugin-sdk/text-chunking";
