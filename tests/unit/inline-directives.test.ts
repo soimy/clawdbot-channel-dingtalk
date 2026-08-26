@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseInlineDirectives, sanitizeReplyDirectiveId } from "../../src/messaging/inline-directives";
+import {
+  parseInlineDirectives,
+  sanitizeReplyDirectiveId,
+} from "../../src/messaging/inline-directives";
 
 describe("parseInlineDirectives", () => {
   describe("audio tag handling", () => {
@@ -97,6 +100,31 @@ describe("parseInlineDirectives", () => {
       expect(result.audioAsVoice).toBe(false);
       expect(result.hasAudioTag).toBe(false);
       expect(result.text).toBe("run `[[audio_as_voice]]` please");
+    });
+
+    it("keeps tags inside multi-backtick code containing shorter runs", () => {
+      const text = "`` `[[audio_as_voice]]` ``";
+      const result = parseInlineDirectives(text, {});
+      expect(result.hasAudioTag).toBe(false);
+      expect(result.text).toBe(text);
+    });
+
+    it("does not let a shorter fence close a longer tilde fence", () => {
+      const text = "~~~~\n~~~\nliteral\n~~~\n[[reply_to:abc123]]\n~~~~";
+      const result = parseInlineDirectives(text, {});
+      expect(result.hasReplyTag).toBe(false);
+      expect(result.text).toBe(text);
+    });
+
+    it("still parses directives between escaped backticks", () => {
+      const result = parseInlineDirectives("\\`[[audio_as_voice]]\\`", {});
+      expect(result.audioAsVoice).toBe(true);
+      expect(result.text).toBe("\\` \\`");
+    });
+
+    it("does not pair a backtick inside indented code with prose", () => {
+      const result = parseInlineDirectives("    `\nplain [[audio_as_voice]] `", {});
+      expect(result.audioAsVoice).toBe(true);
     });
 
     it("keeps tags inside fenced code blocks", () => {

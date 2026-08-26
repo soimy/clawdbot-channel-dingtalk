@@ -16,11 +16,7 @@
  * directives inside code are never treated as real voice/reply commands.
  */
 
-import {
-  findCodeRegions,
-  isInsideCode,
-  type CodeRegion,
-} from "openclaw/plugin-sdk/text-chunking";
+import { findCodeRegions, isInsideCode, type CodeRegion } from "openclaw/plugin-sdk/text-chunking";
 
 const AUDIO_TAG_RE = /\[\[\s*audio_as_voice\s*\]\]/gi;
 const REPLY_TAG_RE = /\[\[\s*(?:reply_to_current|reply_to\s*:\s*([^\]\n]+))\s*\]\]/gi;
@@ -60,14 +56,91 @@ function normalizeOptionalString(value: unknown): string | undefined {
  * protects those too).
  */
 function resolveCodeRegions(text: string): CodeRegion[] {
-  const regions: CodeRegion[] = [...findCodeRegions(text)];
+  const indentedRegions: CodeRegion[] = [];
   const indentRe = new RegExp(INDENTED_CODE_LINE_RE.source, "g");
   let match: RegExpExecArray | null;
   while ((match = indentRe.exec(text)) !== null) {
     const start = match.index + (match[0].charCodeAt(0) === 10 ? 1 : 0);
-    regions.push({ start, end: match.index + match[0].length });
+    indentedRegions.push({ start, end: match.index + match[0].length });
   }
-  return mergeCodeRegions(regions);
+  const sdkRegions = findCodeRegions(text).filter(
+    (region) =>
+      (text[region.start] !== "`" || !isEscaped(text, region.start)) &&
+      !indentedRegions.some(
+        (indented) => region.start >= indented.start && region.start < indented.end,
+      ),
+  );
+  const knownRegions = mergeCodeRegions([...sdkRegions, ...indentedRegions]);
+  return mergeCodeRegions([...knownRegions, ...findDelimiterCodeRegions(text, knownRegions)]);
+}
+
+function isEscaped(text: string, offset: number): boolean {
+  let slashes = 0;
+  for (let index = offset - 1; text[index] === "\\"; index--) {
+    slashes++;
+  }
+  return slashes % 2 === 1;
+}
+
+function isStrictlyInsideCode(offset: number, regions: CodeRegion[]): boolean {
+  return regions.some((region) => offset > region.start && offset < region.end);
+}
+
+// ponytail: small 2026.7.x delimiter supplement; delete when the minimum host is 2026.8+.
+function findDelimiterCodeRegions(text: string, knownRegions: CodeRegion[]): CodeRegion[] {
+  const regions: CodeRegion[] = [];
+  let match: RegExpExecArray | null;
+  const fences = /^( {0,3})(`{3,}|~{3,})[^\n]*(?:\n|$)/gm;
+  let open: { char: string; length: number; start: number } | undefined;
+  while ((match = fences.exec(text)) !== null) {
+    const delimiter = match[2];
+    if (!open) {
+      const suffix = match[0].slice(match[1].length + delimiter.length).trim();
+      if (
+        isStrictlyInsideCode(match.index, knownRegions) ||
+        (delimiter[0] === "`" && suffix.includes("`"))
+      ) {
+        continue;
+      }
+      open = { char: delimiter[0], length: delimiter.length, start: match.index };
+    } else if (
+      delimiter[0] === open.char &&
+      delimiter.length >= open.length &&
+      match[0].slice(match[1].length + delimiter.length).trim() === ""
+    ) {
+      regions.push({ start: open.start, end: fences.lastIndex });
+      open = undefined;
+    }
+  }
+  if (open) {
+    regions.push({ start: open.start, end: text.length });
+  }
+
+  const fencedRegions = [...regions];
+  const pendingTicks = new Map<number, number>();
+  const ticks = /`+/g;
+  while ((match = ticks.exec(text)) !== null) {
+    const length = match[0].length;
+    if (
+      isEscaped(text, match.index) ||
+      isInsideCode(match.index, fencedRegions) ||
+      (pendingTicks.get(length) === undefined && isStrictlyInsideCode(match.index, knownRegions))
+    ) {
+      continue;
+    }
+    const start = pendingTicks.get(length);
+    if (start === undefined) {
+      pendingTicks.set(length, match.index);
+      continue;
+    }
+    regions.push({ start, end: ticks.lastIndex });
+    for (const [pendingLength, pendingStart] of pendingTicks) {
+      if (pendingStart >= start) {
+        pendingTicks.delete(pendingLength);
+      }
+    }
+  }
+  return regions;
 }
 
 function mergeCodeRegions(regions: CodeRegion[]): CodeRegion[] {
