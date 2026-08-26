@@ -190,6 +190,9 @@ export function parseInlineDirectives(
   }
 
   // Directives inside code regions are literal text: never voice/reply semantics.
+  // Stripping a tag shortens the string, so every pass re-derives regions from
+  // the text it actually runs against; offsets from an earlier pass are stale
+  // once a preceding tag has been removed.
   const codeRegions = resolveCodeRegions(text);
   let cleaned = text;
   let audioAsVoice = false;
@@ -206,11 +209,12 @@ export function parseInlineDirectives(
     hasAudioTag = true;
     return stripAudioTag ? replacementPreservesWordBoundary(source, offset, match.length) : match;
   });
+  const codeRegionsAfterAudioStrip = resolveCodeRegions(cleaned);
 
   cleaned = cleaned.replace(
     REPLY_TAG_RE,
     (match: string, idRaw: string | undefined, offset: number, source: string) => {
-      if (isInsideCode(offset, codeRegions)) {
+      if (isInsideCode(offset, codeRegionsAfterAudioStrip)) {
         return match;
       }
       hasReplyTag = true;
@@ -240,7 +244,7 @@ export function parseInlineDirectives(
     };
   }
 
-  cleaned = normalizeDirectiveWhitespace(cleaned, codeRegions);
+  cleaned = normalizeDirectiveWhitespace(cleaned, resolveCodeRegions(cleaned));
   const replyToId =
     lastExplicitId ?? (sawCurrent ? normalizeOptionalString(currentMessageId) : undefined);
 

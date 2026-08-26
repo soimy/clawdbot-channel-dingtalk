@@ -141,6 +141,32 @@ describe("parseInlineDirectives", () => {
     });
   });
 
+  describe("directives before code blocks (offset regression)", () => {
+    it("keeps fenced code whitespace and normalizes prose after stripping a leading audio tag", () => {
+      const text = "[[audio_as_voice]]\n```\nx   y\n```\nordinary   prose";
+      const result = parseInlineDirectives(text, {});
+      expect(result.audioAsVoice).toBe(true);
+      expect(result.hasReplyTag).toBe(false);
+      expect(result.text).toBe("```\nx   y\n```\nordinary prose");
+    });
+
+    it("keeps indented code whitespace after stripping a leading audio tag", () => {
+      const text = "[[audio_as_voice]]\n    x   y\nplain   prose";
+      const result = parseInlineDirectives(text, {});
+      expect(result.audioAsVoice).toBe(true);
+      expect(result.text).toBe("    x   y\nplain prose");
+    });
+
+    it("treats a reply tag inside a fenced block as literal when an audio tag precedes it", () => {
+      const text = "[[audio_as_voice]]\n```\n[[reply_to:abc123]]\n```\nok";
+      const result = parseInlineDirectives(text, {});
+      expect(result.audioAsVoice).toBe(true);
+      expect(result.hasReplyTag).toBe(false);
+      expect(result.replyToId).toBeUndefined();
+      expect(result.text).toBe("```\n[[reply_to:abc123]]\n```\nok");
+    });
+  });
+
   describe("early return for unknown [[tags]]", () => {
     it("returns the original text untouched for unknown tags", () => {
       const text = "hello\n\n\n[[custom]]\nworld";
