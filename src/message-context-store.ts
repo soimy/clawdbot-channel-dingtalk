@@ -51,6 +51,8 @@ export interface MessageRecord {
   senderId?: string;
   senderName?: string;
   mentions?: string[];
+  /** Raw DingTalk user IDs from structured @mention payloads. */
+  mentionUserIds?: string[];
   chatType?: "direct" | "group";
   /** Flat quoted target for summary/history lookups; quotedRef remains the authoritative structured link. */
   quotedMessageId?: string;
@@ -102,6 +104,8 @@ interface BaseUpsertParams {
   senderId?: string;
   senderName?: string;
   mentions?: string[];
+  /** Raw DingTalk user IDs from structured @mention payloads. */
+  mentionUserIds?: string[];
   chatType?: "direct" | "group";
   quotedMessageId?: string;
   media?: {
@@ -340,6 +344,7 @@ function normalizeMessageRecord(value: unknown): MessageRecord | null {
         ? candidate.senderName.trim()
         : undefined,
     mentions: normalizeMentions(candidate.mentions),
+    mentionUserIds: normalizeMentions(candidate.mentionUserIds),
     chatType:
       candidate.chatType === "direct" || candidate.chatType === "group"
         ? candidate.chatType
@@ -703,6 +708,7 @@ function upsertRecord(
     senderId?: string;
     senderName?: string;
     mentions?: string[];
+    mentionUserIds?: string[];
     chatType?: "direct" | "group";
     quotedMessageId?: string;
     media?: MessageRecord["media"];
@@ -765,6 +771,7 @@ function upsertRecord(
     senderId: mergeStringField(existing?.senderId, params.senderId),
     senderName: mergeStringField(existing?.senderName, params.senderName),
     mentions: mergeMentions(existing?.mentions, params.mentions),
+    mentionUserIds: mergeMentions(existing?.mentionUserIds, params.mentionUserIds),
     chatType: params.chatType || existing?.chatType,
     quotedMessageId: mergeStringField(existing?.quotedMessageId, params.quotedMessageId),
     media: mergeMedia(existing?.media, params.media),

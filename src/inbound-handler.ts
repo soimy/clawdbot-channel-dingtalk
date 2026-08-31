@@ -427,18 +427,28 @@ function sanitizeGroupPromptName(value?: string): string {
     .trim();
 }
 
-function buildGroupTurnContextPrompt(params: {
+export function buildGroupTurnContextPrompt(params: {
   conversationId: string;
   senderDingtalkId: string;
   senderName?: string;
+  mentionedDingtalkIds?: readonly string[];
 }): string {
   const sanitizedSenderName = sanitizeGroupPromptName(params.senderName) || "Unknown";
+  const mentionedDingtalkIds = [
+    ...new Set(
+      (params.mentionedDingtalkIds || [])
+        .map((value) => value.replace(/[\r\n,=]/g, " ").trim())
+        .filter(Boolean),
+    ),
+  ];
   return [
     "Current DingTalk group turn context:",
     `- conversationId: ${params.conversationId}`,
     `- senderDingtalkId: ${params.senderDingtalkId}`,
     `- senderName: ${sanitizedSenderName}`,
+    `- mentionedDingtalkIds: ${mentionedDingtalkIds.length > 0 ? mentionedDingtalkIds.join(", ") : "(none provided)"}`,
     "Treat senderDingtalkId and senderName as the authoritative sender for this turn. Do not guess the current sender from GroupMembers.",
+    "Treat mentionedDingtalkIds as raw structured IDs only; do not infer a display name or map them to text mentions without payload evidence.",
   ].join("\n");
 }
 
@@ -1007,6 +1017,17 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
   const quotedRef = buildInboundQuotedRef(data, extractedContent);
   const replyQuotedRef = createReplyQuotedRef(data.msgId);
   const content = extractedContent;
+  const mentionUserIds = [
+    ...new Set(
+      [
+        ...(content.atUserDingtalkIds || []),
+        ...(content.atMentions || []).map((mention) => mention.userId),
+      ]
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
   // Decide control-message bypasses once from the user-authored text.  Reusing
   // the result below keeps /stop out of the FIFO queue without calling the SDK
   // classifier a second time after attachment/OCR enrichment.
@@ -1247,6 +1268,9 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         quotedRef,
         senderId,
         senderName,
+        mentions: content.atMentions?.map((mention) => mention.name),
+        mentionUserIds,
+        chatType: isDirect ? "direct" : "group",
         createdAt: data.createAt,
         ttlMs: ttlDaysToMs(journalTTLDays),
         ttlReferenceMs: data.createAt,
@@ -1779,6 +1803,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
             conversationId: groupId,
             senderDingtalkId: senderId,
             senderName,
+            mentionedDingtalkIds: mentionUserIds,
           }),
           groupConfig?.systemPrompt?.trim(),
         ]

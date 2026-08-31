@@ -126,6 +126,7 @@ describe('message-context-store', () => {
             senderId: 'user_1',
             senderName: 'Alice',
             mentions: ['Bob', 'Bob', ''],
+            mentionUserIds: ['dingtalk_bob', 'dingtalk_bob', ''],
             chatType: 'group',
             quotedMessageId: 'quoted_1',
             ttlMs: 60_000,
@@ -159,6 +160,7 @@ describe('message-context-store', () => {
         expect(inbound?.senderId).toBe('user_1');
         expect(inbound?.senderName).toBe('Alice');
         expect(inbound?.mentions).toEqual(['Bob']);
+        expect(inbound?.mentionUserIds).toEqual(['dingtalk_bob']);
         expect(inbound?.chatType).toBe('group');
         expect(inbound?.quotedMessageId).toBe('quoted_1');
 

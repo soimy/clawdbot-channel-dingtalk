@@ -83,7 +83,21 @@ vi.mock("../../src/media-utils", async () => {
   };
 });
 
-import { handleDingTalkMessage } from "../../src/inbound-handler";
+import { buildGroupTurnContextPrompt, handleDingTalkMessage } from "../../src/inbound-handler";
+
+describe("group mention runtime context", () => {
+  it("preserves raw structured DingTalk IDs without guessing names", () => {
+    const prompt = buildGroupTurnContextPrompt({
+      conversationId: "cid_1",
+      senderDingtalkId: "sender_1",
+      senderName: "Alice",
+      mentionedDingtalkIds: ["$:user_a", "$:user_a", "user,bad"],
+    });
+
+    expect(prompt).toContain("mentionedDingtalkIds: $:user_a, user bad");
+    expect(prompt).toContain("do not infer a display name");
+  });
+});
 
 function buildRuntime() {
   return {
