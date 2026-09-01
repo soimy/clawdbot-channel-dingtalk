@@ -25,10 +25,12 @@ export type RuntimeAgentEvent = {
 };
 
 export type RuntimeEventsSurface = {
-  onAgentEvent?: (listener: (event: unknown) => void) => (() => void);
+  onAgentEvent?: (listener: (event: unknown) => void) => () => void;
 };
 
-export function createRuntimeEventsFanout(upstream: RuntimeEventsSurface | undefined): RuntimeEventsSurface {
+export function createRuntimeEventsFanout(
+  upstream: RuntimeEventsSurface | undefined,
+): RuntimeEventsSurface {
   const listeners = new Set<(event: unknown) => void>();
   let unsubscribeUpstream: (() => void) | undefined;
 
@@ -37,7 +39,8 @@ export function createRuntimeEventsFanout(upstream: RuntimeEventsSurface | undef
       return;
     }
     unsubscribeUpstream = upstream.onAgentEvent((event: unknown) => {
-      for (const listener of [...listeners]) {
+      const currentListeners = Array.from(listeners);
+      for (const listener of currentListeners) {
         listener(event);
       }
     });
@@ -72,7 +75,11 @@ export function getEventRunId(event: RuntimeAgentEvent | undefined): string | un
 }
 
 export function getEventSessionKey(event: RuntimeAgentEvent | undefined): string | undefined {
-  return firstTrimmedString(event?.sessionKey, event?.data?.sessionKey, event?.data?.meta?.sessionKey);
+  return firstTrimmedString(
+    event?.sessionKey,
+    event?.data?.sessionKey,
+    event?.data?.meta?.sessionKey,
+  );
 }
 
 export function describeEvent(event: RuntimeAgentEvent | undefined): string {
@@ -80,8 +87,10 @@ export function describeEvent(event: RuntimeAgentEvent | undefined): string {
   const phase = firstTrimmedString(event?.data?.phase) || "-";
   const toolName = firstTrimmedString(event?.data?.name) || "-";
   const toolCallId = firstTrimmedString(event?.data?.toolCallId) || "-";
-  return `stream=${stream} phase=${phase} runId=${getEventRunId(event) || "-"} ` +
-    `sessionKey=${getEventSessionKey(event) || "-"} toolCallId=${toolCallId} toolName=${toolName}`;
+  return (
+    `stream=${stream} phase=${phase} runId=${getEventRunId(event) || "-"} ` +
+    `sessionKey=${getEventSessionKey(event) || "-"} toolCallId=${toolCallId} toolName=${toolName}`
+  );
 }
 
 export function createDynamicAckReactionCorrelator(params: {
@@ -105,7 +114,7 @@ export function createDynamicAckReactionCorrelator(params: {
       const matched = eventRunId === activeRunId;
       params.log?.debug?.(
         `[DingTalk] Dynamic reaction correlation by runId matched=${matched} activeRunId=${activeRunId} ` +
-        `eventRunId=${eventRunId || "-"} eventSessionKey=${eventSessionKey || "-"}`,
+          `eventRunId=${eventRunId || "-"} eventSessionKey=${eventSessionKey || "-"}`,
       );
       return matched;
     }
@@ -125,18 +134,18 @@ export function createDynamicAckReactionCorrelator(params: {
     }
 
     if (
-      optimisticCaptureCount === 0
-      && eventStream === "lifecycle"
-      && eventPhase === "start"
-      && eventRunId
-      && !eventSessionKey
-      && Date.now() - params.createdAt <= params.optimisticCaptureWindowMs
+      optimisticCaptureCount === 0 &&
+      eventStream === "lifecycle" &&
+      eventPhase === "start" &&
+      eventRunId &&
+      !eventSessionKey &&
+      Date.now() - params.createdAt <= params.optimisticCaptureWindowMs
     ) {
       optimisticCaptureCount += 1;
       activeRunId = eventRunId;
       params.log?.debug?.(
         `[DingTalk] Dynamic reaction optimistically captured active runId=${activeRunId} ` +
-        `from first lifecycle event without sessionKey windowMs=${params.optimisticCaptureWindowMs}`,
+          `from first lifecycle event without sessionKey windowMs=${params.optimisticCaptureWindowMs}`,
       );
       return true;
     }
@@ -145,7 +154,7 @@ export function createDynamicAckReactionCorrelator(params: {
       correlationUnavailableLogged = true;
       params.log?.debug?.(
         `[DingTalk] Dynamic reaction ignored uncorrelated agent events; ` +
-        `reason=${getErrorMessage(eventRunId || eventSessionKey || "waiting for sessionKey/runId match")}`,
+          `reason=${getErrorMessage(eventRunId || eventSessionKey || "waiting for sessionKey/runId match")}`,
       );
     }
     return false;
