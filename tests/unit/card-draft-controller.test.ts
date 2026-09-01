@@ -168,6 +168,27 @@ describe("card-draft-controller", () => {
         });
     });
 
+    it("replaces and clears a single live task progress block", async () => {
+        const card = makeCard();
+        const ctrl = createCardDraftController({ card, throttleMs: 0 });
+
+        await ctrl.updateProgress("⏳ 任务处理中\n当前阶段：正在检查配置");
+        await vi.advanceTimersByTimeAsync(0);
+        await ctrl.updateProgress("⏳ 任务处理中\n当前阶段：正在验证服务");
+        await vi.advanceTimersByTimeAsync(0);
+
+        let blocks = parseBlocks(ctrl.getRenderedBlocks());
+        expect(blocks).toHaveLength(1);
+        expect(getBlockText(blocks, 0)).toContain("正在验证服务");
+        expect(getBlockText(blocks, 0)).not.toContain("正在检查配置");
+
+        await ctrl.clearProgress();
+        await vi.advanceTimersByTimeAsync(0);
+
+        blocks = parseBlocks(ctrl.getRenderedBlocks());
+        expect(blocks).toHaveLength(0);
+    });
+
     it("answer rendering keeps the latest thinking block in the same timeline", async () => {
         const card = makeCard();
         const ctrl = createCardDraftController({ card, throttleMs: 0 });

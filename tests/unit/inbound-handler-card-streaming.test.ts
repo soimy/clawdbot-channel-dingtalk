@@ -304,6 +304,82 @@ describe("inbound-handler card streaming", () => {
       expect(shared.createAICardMock).toHaveBeenCalledTimes(1);
       expect(shared.commitAICardBlocksMock).toHaveBeenCalledTimes(1);
     });
+
+    it("updates the same card with sanitized runtime task progress before the final answer", async () => {
+      const runtime = buildRuntime() as ReturnType<typeof buildRuntime> & {
+        events: { onAgentEvent: (listener: (event: unknown) => void) => () => void };
+      };
+      let agentEventListener: ((event: unknown) => void) | undefined;
+      runtime.events = {
+        onAgentEvent: vi.fn((listener) => {
+          agentEventListener = listener;
+          return vi.fn();
+        }),
+      };
+      runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher = vi
+        .fn()
+        .mockImplementation(async ({ dispatcherOptions }) => {
+          agentEventListener?.({
+            stream: "lifecycle",
+            runId: "run-progress",
+            sessionKey: "s1",
+            data: { phase: "start" },
+          });
+          agentEventListener?.({
+            stream: "tool",
+            runId: "run-progress",
+            sessionKey: "s1",
+            data: {
+              phase: "start",
+              name: "exec",
+              toolCallId: "tool-progress",
+              args: { cmd: "curl -H 'Authorization: secret-token' https://example.com" },
+            },
+          });
+          await Promise.resolve();
+          await Promise.resolve();
+          await dispatcherOptions.deliver({ text: "完成" }, { kind: "final" });
+          return { queuedFinal: false };
+        });
+      shared.getRuntimeMock.mockReturnValueOnce(runtime);
+      shared.createAICardMock.mockResolvedValueOnce({
+        cardInstanceId: "card_progress",
+        state: "1",
+        lastUpdated: Date.now(),
+      });
+
+      await handleDingTalkMessage({
+        cfg: {},
+        accountId: "main",
+        sessionWebhook: "https://session.webhook",
+        log: undefined,
+        dingtalkConfig: {
+          dmPolicy: "open",
+          messageType: "card",
+          ackReaction: "",
+          cardStreamingMode: "answer",
+        } as unknown as DingTalkConfig,
+        data: {
+          msgId: "m_progress",
+          msgtype: "text",
+          text: { content: "执行一个长任务" },
+          conversationType: "1",
+          conversationId: "cid_ok",
+          senderId: "user_1",
+          chatbotUserId: "bot_1",
+          sessionWebhook: "https://session.webhook",
+          createAt: Date.now(),
+        },
+      } as unknown as { data: unknown });
+
+      const progressFrames = shared.updateAICardBlockListMock.mock.calls
+        .map((call) => String(call[1] ?? ""))
+        .filter((frame) => frame.includes("任务处理中"));
+      expect(progressFrames).not.toHaveLength(0);
+      expect(progressFrames.at(-1)).toContain("当前阶段：正在执行检查");
+      expect(progressFrames.at(-1)).not.toContain("secret-token");
+      expect(shared.commitAICardBlocksMock.mock.calls.at(-1)?.[1]?.content).toContain("完成");
+    });
   });
 
   describe("reasoning buffer assembly and flush", () => {

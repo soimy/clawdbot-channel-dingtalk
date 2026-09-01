@@ -34,6 +34,7 @@ import { sendBySession, sendMessage, sendProactiveMedia, uploadMedia } from "./s
 import type { AICardInstance } from "./types";
 import { AICardStatus } from "./types";
 import { formatDingTalkErrorPayloadLog } from "./utils";
+import { createCardTaskProgressController } from "./card/card-task-progress";
 
 const EMPTY_FINAL_REPLY = "✅ Done";
 const DEFAULT_CARD_FAILED_MESSAGE = "回复生成失败，请重试";
@@ -130,6 +131,13 @@ export function createCardReplyStrategy(
     realTimeStreamEnabled: streamAnswerLive,
     throttleMs: config.cardStreamInterval ?? 1000,
     getStatusLine: buildStatusLine,
+  });
+  const taskProgressController = createCardTaskProgressController({
+    sessionKey: ctx.sessionKey || "",
+    runtimeEvents: ctx.runtimeEvents,
+    updateProgress: controller.updateProgress,
+    clearProgress: controller.clearProgress,
+    log,
   });
   const reasoningAssembler = createReasoningBlockAssembler();
   if (card.outTrackId) {
@@ -621,6 +629,7 @@ export function createCardReplyStrategy(
     },
 
     async finalize(): Promise<void> {
+      await taskProgressController.dispose();
       log?.info?.(
         `[DingTalk][Finalize] Step 5 entry — ` +
         `cardState=${card.state ?? "N/A"} ` +
@@ -832,6 +841,7 @@ export function createCardReplyStrategy(
     },
 
     async abort(_error: Error): Promise<void> {
+      await taskProgressController.dispose();
       lifecycleState = "sealed";
       if (card.accountId && card.conversationId) {
         clearRuns(ctx.taskMeta?.runIds);

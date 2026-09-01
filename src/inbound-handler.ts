@@ -7,6 +7,7 @@ import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./acces
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
 import { createDynamicAckReactionController } from "./ack-reaction/dynamic-ack-reaction-controller";
+import { createRuntimeEventsFanout } from "./ack-reaction/dynamic-ack-reaction-events";
 import { getAccessToken } from "./auth";
 import {
   createAICard,
@@ -2264,6 +2265,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         };
       }
     ).events;
+    const replyRuntimeEvents = createRuntimeEventsFanout(runtimeEvents);
     const releaseSessionLock = await acquireSessionLock(route.sessionKey);
     const dynamicAckReactionController = createDynamicAckReactionController({
       enabled: shouldTrackDynamicAckReaction,
@@ -2275,7 +2277,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       conversationId: groupId,
       sessionKey: route.sessionKey,
       log,
-      runtimeEvents,
+      runtimeEvents: replyRuntimeEvents,
       onReactionDisposed: () => {
         ackReactionAttached = false;
       },
@@ -2350,6 +2352,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
         isStopRequested: isCurrentCardStopRequested,
         inboundText: rawInboundText,
         taskMeta,
+        runtimeEvents: replyRuntimeEvents,
       });
 
       let deliveredFinalCount = 0;
