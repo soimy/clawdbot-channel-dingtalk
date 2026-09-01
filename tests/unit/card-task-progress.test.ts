@@ -63,9 +63,21 @@ describe("card task progress", () => {
     });
 
     listener?.({ stream: "lifecycle", runId: "run-1", sessionKey: "s1", data: { phase: "start" } });
-    listener?.({ stream: "tool", runId: "run-1", data: { phase: "start", name: "read", toolCallId: "tool-1" } });
-    listener?.({ stream: "tool", runId: "run-1", data: { phase: "end", name: "read", toolCallId: "tool-1" } });
-    listener?.({ stream: "tool", runId: "run-1", data: { phase: "start", name: "web_search", toolCallId: "tool-2" } });
+    listener?.({
+      stream: "tool",
+      runId: "run-1",
+      data: { phase: "start", name: "read", toolCallId: "tool-1" },
+    });
+    listener?.({
+      stream: "tool",
+      runId: "run-1",
+      data: { phase: "end", name: "read", toolCallId: "tool-1" },
+    });
+    listener?.({
+      stream: "tool",
+      runId: "run-1",
+      data: { phase: "start", name: "web_search", toolCallId: "tool-2" },
+    });
     await controller.awaitDrain();
 
     const rendered = String(updateProgress.mock.calls.at(-1)?.[0] ?? "");

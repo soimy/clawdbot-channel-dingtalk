@@ -105,7 +105,9 @@ export function createCardTaskProgressController(params: {
     updatePromise = updatePromise
       .then(() => params.updateProgress(render()))
       .catch((error: unknown) => {
-        params.log?.warn?.(`[DingTalk][TaskProgress] Card update failed: ${getErrorMessage(error)}`);
+        params.log?.warn?.(
+          `[DingTalk][TaskProgress] Card update failed: ${getErrorMessage(error)}`,
+        );
       });
     return updatePromise;
   };
