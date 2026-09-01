@@ -8,6 +8,7 @@
 
 import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import type { DingTalkConfig, Logger, QuotedRef } from "./types";
+import type { RuntimeEventsSurface } from "./ack-reaction/dynamic-ack-reaction-events";
 
 // ---- Internal helper type ----
 
@@ -94,4 +95,5 @@ export interface ReplyStrategyContext {
   isStopRequested?: () => boolean;
   inboundText?: string;
   taskMeta?: TaskMeta;
+  runtimeEvents?: RuntimeEventsSurface;
 }

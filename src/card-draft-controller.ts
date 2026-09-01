@@ -18,7 +18,7 @@ import {
 import { createDraftStreamLoop } from "./draft-stream-loop";
 import type { AICardInstance, CardBlock, Logger } from "./types";
 
-type TimelineEntryKind = "thinking" | "tool" | "answer" | "image";
+type TimelineEntryKind = "progress" | "thinking" | "tool" | "answer" | "image";
 
 type TimelineEntry = {
     kind: TimelineEntryKind;
@@ -34,6 +34,8 @@ const PROCESS_BLOCK_FONT_SIZE_TOKEN = "common_footnote_text_style__font_size";
 const PROCESS_BLOCK_FONT_COLOR_TOKEN_V2 = "common_level2_base_color";
 
 export interface CardDraftController {
+    updateProgress: (text: string) => Promise<void>;
+    clearProgress: () => Promise<void>;
     updateAnswer: (text: string, options?: { stream?: boolean; renderBlocks?: boolean }) => Promise<void>;
     updateReasoning: (text: string) => Promise<void>;
     updateThinking: (text: string) => Promise<void>;
@@ -201,6 +203,43 @@ export function createCardDraftController(params: {
         return timelineEntries.length - 1;
     };
 
+    const updateProgress = async (text: string) => {
+        await waitForPendingBoundary();
+        if (stopped || failed) {
+            return;
+        }
+        const normalized = normalizeProcessText(text);
+        if (!normalized) {
+            return;
+        }
+        const progressIndex = timelineEntries.findIndex((entry) => entry.kind === "progress");
+        if (progressIndex >= 0) {
+            timelineEntries[progressIndex] = { kind: "progress", text: normalized };
+        } else {
+            timelineEntries.unshift({ kind: "progress", text: normalized });
+            if (activeThinkingIndex !== null) {
+                activeThinkingIndex += 1;
+            }
+            if (activeAnswerIndex !== null) {
+                activeAnswerIndex += 1;
+            }
+        }
+        queueRender();
+    };
+
+    const clearProgress = async () => {
+        await waitForPendingBoundary();
+        if (stopped || failed) {
+            return;
+        }
+        const progressIndex = timelineEntries.findIndex((entry) => entry.kind === "progress");
+        if (progressIndex < 0) {
+            return;
+        }
+        removeTimelineEntry(progressIndex);
+        queueRender();
+    };
+
     const findCurrentSegmentAnswerIndex = (): number | null => {
         return activeAnswerIndex;
     };
@@ -251,6 +290,11 @@ export function createCardDraftController(params: {
         for (const entry of entries) {
             if (!entry) { continue; }
             switch (entry.kind) {
+                case "progress":
+                    if (entry.text?.trim()) {
+                        blocks.push({ type: 2, markdown: wrapProcessBlockMarkdown(entry.text) });
+                    }
+                    break;
                 case "answer":
                     if (entry.text?.trim()) {
                         blocks.push({ type: 0, markdown: entry.text });
@@ -575,6 +619,8 @@ export function createCardDraftController(params: {
     };
 
     return {
+        updateProgress,
+        clearProgress,
         updateAnswer,
         updateReasoning,
         updateThinking: updateReasoning,

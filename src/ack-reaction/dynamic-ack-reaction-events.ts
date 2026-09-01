@@ -28,6 +28,36 @@ export type RuntimeEventsSurface = {
   onAgentEvent?: (listener: (event: unknown) => void) => (() => void);
 };
 
+export function createRuntimeEventsFanout(upstream: RuntimeEventsSurface | undefined): RuntimeEventsSurface {
+  const listeners = new Set<(event: unknown) => void>();
+  let unsubscribeUpstream: (() => void) | undefined;
+
+  const ensureUpstreamSubscription = () => {
+    if (unsubscribeUpstream || !upstream?.onAgentEvent) {
+      return;
+    }
+    unsubscribeUpstream = upstream.onAgentEvent((event: unknown) => {
+      for (const listener of [...listeners]) {
+        listener(event);
+      }
+    });
+  };
+
+  return {
+    onAgentEvent(listener: (event: unknown) => void) {
+      listeners.add(listener);
+      ensureUpstreamSubscription();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0 && unsubscribeUpstream) {
+          unsubscribeUpstream();
+          unsubscribeUpstream = undefined;
+        }
+      };
+    },
+  };
+}
+
 function firstTrimmedString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) {
