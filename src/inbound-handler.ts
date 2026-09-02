@@ -2,6 +2,7 @@ import fs from "node:fs";
 import * as path from "node:path";
 import { isAbortRequestText, isBtwRequestText } from "openclaw/plugin-sdk/reply-runtime";
 import { parseInlineDirectives } from "openclaw/plugin-sdk/text-runtime";
+import { formatInboundEnvelope, resolveEnvelopeFormatOptions } from "openclaw/plugin-sdk/channel-inbound";
 import { normalizeAllowFrom, isSenderAllowed, resolveGroupAccess } from "./access-control";
 import { classifyAckReactionEmoji } from "./ack-reaction-classifier";
 import { attachNativeAckReaction } from "./ack-reaction-service";
@@ -1765,7 +1766,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
       targetId: data.conversationId,
       content,
     });
-    const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
+    const envelopeOptions = resolveEnvelopeFormatOptions(cfg);
     const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
       storePath,
       sessionKey: route.sessionKey,
@@ -1792,7 +1793,7 @@ async function handleDingTalkMessageInner(params: HandleDingTalkMessageParams): 
     const groupMembers = !isDirect ? formatGroupMembers(storePath, groupId) : undefined;
 
     const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
-    const body = rt.channel.reply.formatInboundEnvelope({
+    const body = formatInboundEnvelope({
       channel: "DingTalk",
       from: fromLabel,
       timestamp: data.createAt,
