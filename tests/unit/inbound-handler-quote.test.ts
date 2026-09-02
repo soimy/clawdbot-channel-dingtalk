@@ -27,6 +27,8 @@ const shared = vi.hoisted(() => ({
   formatContentForCardMock: vi.fn((s: string) => s),
   sendProactiveMediaMock: vi.fn(),
   uploadMediaMock: vi.fn(),
+  formatInboundEnvelopeMock: vi.fn().mockReturnValue("body"),
+  resolveEnvelopeFormatOptionsMock: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock("../../src/runtime", () => ({
@@ -81,6 +83,11 @@ vi.mock("../../src/media-utils", async () => {
 vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
   isAbortRequestText: shared.isAbortRequestTextMock,
   isBtwRequestText: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
+  formatInboundEnvelope: shared.formatInboundEnvelopeMock,
+  resolveEnvelopeFormatOptions: shared.resolveEnvelopeFormatOptionsMock,
 }));
 
 vi.mock("../../src/message-context-store", async () => {
@@ -442,7 +449,7 @@ describe("inbound-handler quote handling", () => {
         },
       } as unknown as { data: unknown });
 
-      const envelopeArg = (runtime.channel.reply.formatInboundEnvelope as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      const envelopeArg = (shared.formatInboundEnvelopeMock as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
       expect(envelopeArg.body).toContain("我在讨论字符串 [引用消息:] 本身");
       expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
         expect.objectContaining({
