@@ -1,6 +1,6 @@
 {
   "name": "@soimy/dingtalk",
-  "version": "3.6.10",
+  "version": "3.6.11",
   "description": "DingTalk (钉钉) channel plugin for OpenClaw",
   "keywords": [
     "bot",
