@@ -28,6 +28,7 @@ import {
   getProactiveRiskObservation,
   recordProactiveRiskObservation,
 } from "./proactive-risk-registry";
+import { resolveDingTalkSendTarget } from "./targeting/send-target-resolver";
 import { formatDingTalkErrorPayloadLog, getProxyBypassOption } from "./utils";
 import type { UploadMediaResult } from "./media-utils";
 import type {
@@ -357,10 +358,15 @@ export async function sendProactiveTextOrMarkdown(
 ): Promise<ProactiveTextSendResult> {
   const log = options.log || getLogger();
 
-  // Support group:/user: prefix and restore original case-sensitive conversationId.
-  const { targetId, isExplicitUser } = stripTargetPrefix(target);
-  const resolvedTarget = resolveOriginalPeerId(targetId);
-  const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+  // Resolve target → routing decision + final userId. Single-chat conversationIds
+  // (e.g. cidt...) get reverse-looked-up against the learned user directory so they
+  // route via oToMessages instead of incorrectly hitting groupMessages/send (which
+  // would fail with "robot 不存在" for enterprise-app AppKey-based robots).
+  const { resolvedTarget, isGroup, resolvedUserStaffId } = resolveDingTalkSendTarget({
+    target,
+    storePath: options.storePath,
+    accountId: options.accountId,
+  });
   const proactiveRisk = options.accountId
     ? getProactiveRiskObservation(options.accountId, resolvedTarget)
     : null;
@@ -428,7 +434,7 @@ export async function sendProactiveTextOrMarkdown(
   if (isGroup) {
     payload.openConversationId = resolvedTarget;
   } else {
-    payload.userIds = [resolvedTarget];
+    payload.userIds = [resolvedUserStaffId ?? resolvedTarget];
   }
 
   try {
@@ -501,9 +507,12 @@ export async function sendProactiveMedia(
     const { mediaId, buffer, durationMs: uploadedDurationMs } = uploadResult;
 
     const token = await getAccessToken(config, log);
-    const { targetId, isExplicitUser } = stripTargetPrefix(target);
-    const resolvedTarget = resolveOriginalPeerId(targetId);
-    const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+    // See `sendProactiveTextOrMarkdown` for routing rationale.
+    const { resolvedTarget, isGroup, resolvedUserStaffId } = resolveDingTalkSendTarget({
+      target,
+      storePath: options.storePath,
+      accountId: options.accountId,
+    });
 
     const dingtalkApi = "https://api.dingtalk.com";
     const url = isGroup
@@ -540,7 +549,7 @@ export async function sendProactiveMedia(
     if (isGroup) {
       payload.openConversationId = resolvedTarget;
     } else {
-      payload.userIds = [resolvedTarget];
+      payload.userIds = [resolvedUserStaffId ?? resolvedTarget];
     }
 
     log?.debug?.(

@@ -5,8 +5,7 @@ import axios from "./http-client";
 import { getAccessToken } from "./auth";
 import { updateCardVariables } from "./card-callback-service";
 import { DINGTALK_CARD_TEMPLATE, STOP_ACTION_VISIBLE, STOP_ACTION_HIDDEN } from "./card/card-template";
-import { resolveRobotCode, stripTargetPrefix } from "./config";
-import { resolveOriginalPeerId } from "./peer-id-registry";
+import { resolveRobotCode } from "./config";
 import {
   createSyntheticOutboundMsgId,
   clearMessageContextCacheForTest,
@@ -22,6 +21,7 @@ import {
   resolveNamespacePath,
   writeNamespaceJsonAtomic,
 } from "./persistence-store";
+import { resolveDingTalkSendTarget } from "./targeting/send-target-resolver";
 import type {
   AICardInstance,
   AICardStreamingRequest,
@@ -646,9 +646,12 @@ async function sendTemplateMismatchNotification(
   }
   try {
     const token = await getAccessToken(config, log);
-    const { targetId, isExplicitUser } = stripTargetPrefix(card.conversationId);
-    const resolvedTarget = resolveOriginalPeerId(targetId);
-    const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+    // See `resolveDingTalkSendTarget` for routing rationale (single-chat cidt... vs group).
+    const { resolvedTarget, isGroup, resolvedUserStaffId } = resolveDingTalkSendTarget({
+      target: card.conversationId,
+      storePath: card.storePath,
+      accountId: card.accountId,
+    });
     const url = isGroup
       ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
       : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
@@ -663,7 +666,7 @@ async function sendTemplateMismatchNotification(
     if (isGroup) {
       payload.openConversationId = resolvedTarget;
     } else {
-      payload.userIds = [resolvedTarget];
+      payload.userIds = [resolvedUserStaffId ?? resolvedTarget];
     }
 
     await axios({
@@ -837,7 +840,16 @@ export async function createAICard(
 
     log?.info?.(`[DingTalk][AICard] Creating and delivering card outTrackId=${cardInstanceId}`);
 
-    const isGroup = conversationId.startsWith("cid");
+    // Reverse-look-up single-chat conversationIds (e.g. `cidt...`) against the
+    // learned user directory so the card is delivered via `IM_ROBOT` (private
+    // chat with the bot) using the user's staffId, instead of incorrectly going
+    // to `IM_GROUP` (which would fail with "robot 不存在"). Unknown `cid*`
+    // targets fall back to the original `IM_GROUP` branch.
+    const { isGroup, resolvedUserStaffId } = resolveDingTalkSendTarget({
+      target: conversationId,
+      storePath: options.storePath,
+      accountId: options.accountId,
+    });
 
     // DingTalk createAndDeliver API payload.
     // Note: do NOT include template.statusKey here — the createAndDeliver API may
@@ -865,7 +877,7 @@ export async function createAICard(
       imRobotOpenSpaceModel: { supportForward: true },
       openSpaceId: isGroup
         ? `dtv1.card//IM_GROUP.${conversationId}`
-        : `dtv1.card//IM_ROBOT.${conversationId}`,
+        : `dtv1.card//IM_ROBOT.${resolvedUserStaffId ?? conversationId}`,
       userIdType: 1,
       imGroupOpenDeliverModel: isGroup
         ? {
@@ -1321,9 +1333,13 @@ function getCardRecallTarget(card: AICardInstance): {
   isGroup: boolean;
   conversationId?: string;
 } {
-  const { targetId, isExplicitUser } = stripTargetPrefix(card.conversationId);
-  const resolvedTarget = resolveOriginalPeerId(targetId);
-  const isGroup = !isExplicitUser && resolvedTarget.startsWith("cid");
+  // Reverse-look-up keeps a single-chat conversationId from being mis-classified
+  // as a group when the recall API has different requirements per channel.
+  const { resolvedTarget, isGroup } = resolveDingTalkSendTarget({
+    target: card.conversationId,
+    storePath: card.storePath,
+    accountId: card.accountId,
+  });
   return {
     isGroup,
     conversationId: resolvedTarget || undefined,

@@ -394,3 +394,53 @@ export function listKnownUserTargets(params: {
   }
   return entries;
 }
+
+/**
+ * Reverse-lookup a user's staffId (or canonicalUserId fallback) from a conversationId.
+ *
+ * Returns the resolved id only when **exactly one** known user has been observed
+ * in this conversation, which is the safe signal for a 1:1 (single-chat) target.
+ * For real groups, multiple users will be present and we return null to preserve
+ * group-routing behavior at call sites.
+ *
+ * Used by send-target resolution to recover from the case where a single-chat
+ * conversationId (e.g. `cidt...`) is passed as the send target: the directory
+ * lets us route via oToMessages/batchSend with the correct userId instead of
+ * mis-routing to groupMessages/send (which fails with "robot 不存在" because the
+ * enterprise app's AppKey is not registered as a per-group robot).
+ */
+export function findUserStaffIdByConversationId(params: {
+  storePath?: string;
+  accountId: string;
+  conversationId: string;
+}): string | null {
+  const conversationId = trimValue(params.conversationId);
+  if (!conversationId) {
+    return null;
+  }
+  const targetNorm = normalizeLookup(conversationId);
+  const state = readState({ storePath: params.storePath, accountId: params.accountId });
+  // If this conversation is already known as a group (the plugin has previously
+  // observed it as one via inbound group messages), never demote it to a single
+  // user even if only one user has been seen there yet (e.g. brand-new groups
+  // where only one member has spoken). Group identity is a hard signal that
+  // overrides the user-side reverse-lookup.
+  if (state.groups[conversationId]) {
+    return null;
+  }
+  const matches: UserTargetEntry[] = [];
+  for (const user of Object.values(state.users)) {
+    const seen = user.lastSeenInConversationIds || [];
+    if (seen.some((cid) => normalizeLookup(cid) === targetNorm)) {
+      matches.push(user);
+      if (matches.length > 1) {
+        return null;
+      }
+    }
+  }
+  if (matches.length !== 1) {
+    return null;
+  }
+  const only = matches[0];
+  return only.staffId || only.canonicalUserId || null;
+}
