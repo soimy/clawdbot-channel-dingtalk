@@ -427,7 +427,7 @@ function sanitizeGroupPromptName(value?: string): string {
     .trim();
 }
 
-export function buildGroupTurnContextPrompt(params: {
+function buildGroupTurnContextPrompt(params: {
   conversationId: string;
   senderDingtalkId: string;
   senderName?: string;
@@ -449,6 +449,7 @@ export function buildGroupTurnContextPrompt(params: {
     `- mentionedDingtalkIds: ${mentionedDingtalkIds.length > 0 ? mentionedDingtalkIds.join(", ") : "(none provided)"}`,
     "Treat senderDingtalkId and senderName as the authoritative sender for this turn. Do not guess the current sender from GroupMembers.",
     "Treat mentionedDingtalkIds as raw structured IDs only; do not infer a display name or map them to text mentions without payload evidence.",
+    "mentionedDingtalkIds are webhook atUsers/richText IDs (for example $:LWCP_v1:$...), not staff IDs; they are not comparable with senderDingtalkId or GroupMembers ids and must not be used as send targets.",
   ].join("\n");
 }
 

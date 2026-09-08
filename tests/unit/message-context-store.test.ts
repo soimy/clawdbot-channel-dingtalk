@@ -175,6 +175,33 @@ describe('message-context-store', () => {
         expect(listed[1]?.chatType).toBe('group');
     });
 
+    it('hydrates mentionUserIds from persisted state after clearing the cache', () => {
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta_reload',
+            msgId: 'msg_meta_reload_1',
+            createdAt: 1000,
+            messageType: 'text',
+            text: 'first',
+            mentionUserIds: ['dingtalk_bob', 'dingtalk_bob', ''],
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        // Drop the in-memory cache so the next resolve must rehydrate from disk.
+        clearMessageContextCacheForTest();
+
+        const reloaded = resolveByMsgId({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta_reload',
+            msgId: 'msg_meta_reload_1',
+        });
+
+        expect(reloaded?.mentionUserIds).toEqual(['dingtalk_bob']);
+    });
+
     it('persists quotedRef on records and resolves inbound/outbound references', () => {
         const now = Date.now();
 

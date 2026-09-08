@@ -50,8 +50,9 @@ export interface MessageRecord {
   quotedRef?: QuotedRef;
   senderId?: string;
   senderName?: string;
+  /** Display names parsed from mentions; not positionally aligned with mentionUserIds. */
   mentions?: string[];
-  /** Raw DingTalk user IDs from structured @mention payloads. */
+  /** Raw DingTalk user IDs from structured @mention payloads (atUsers / richText atUserId). Not positionally aligned with mentions. */
   mentionUserIds?: string[];
   chatType?: "direct" | "group";
   /** Flat quoted target for summary/history lookups; quotedRef remains the authoritative structured link. */
@@ -103,8 +104,9 @@ interface BaseUpsertParams {
   quotedRef?: QuotedRef;
   senderId?: string;
   senderName?: string;
+  /** Display names parsed from mentions; not positionally aligned with mentionUserIds. */
   mentions?: string[];
-  /** Raw DingTalk user IDs from structured @mention payloads. */
+  /** Raw DingTalk user IDs from structured @mention payloads (atUsers / richText atUserId). Not positionally aligned with mentions. */
   mentionUserIds?: string[];
   chatType?: "direct" | "group";
   quotedMessageId?: string;
