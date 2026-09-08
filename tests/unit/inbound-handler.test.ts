@@ -822,6 +822,12 @@ describe("inbound-handler", () => {
   it("injects group turn context prompt with authoritative sender metadata", async () => {
     const runtime = buildRuntime();
     shared.getRuntimeMock.mockReturnValueOnce(runtime);
+    shared.extractMessageContentMock.mockReturnValueOnce({
+      text: "hello group",
+      messageType: "text",
+      atUserDingtalkIds: ["$:user_a", "$:user_a", "user,bad"],
+      atMentions: [{ name: "Alpha助手", userId: "$:agent-a" }],
+    });
 
     await handleDingTalkMessage({
       cfg: {},
@@ -858,6 +864,18 @@ describe("inbound-handler", () => {
     expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         GroupSystemPrompt: expect.stringContaining("senderName: Alice"),
+      }),
+    );
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        GroupSystemPrompt: expect.stringContaining(
+          "mentionedDingtalkIds: $:user_a, user bad, $:agent-a",
+        ),
+      }),
+    );
+    expect(runtime.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        GroupSystemPrompt: expect.stringContaining("not staff IDs"),
       }),
     );
   });

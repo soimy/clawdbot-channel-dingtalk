@@ -126,6 +126,7 @@ describe('message-context-store', () => {
             senderId: 'user_1',
             senderName: 'Alice',
             mentions: ['Bob', 'Bob', ''],
+            mentionUserIds: ['dingtalk_bob', 'dingtalk_bob', ''],
             chatType: 'group',
             quotedMessageId: 'quoted_1',
             ttlMs: 60_000,
@@ -159,6 +160,7 @@ describe('message-context-store', () => {
         expect(inbound?.senderId).toBe('user_1');
         expect(inbound?.senderName).toBe('Alice');
         expect(inbound?.mentions).toEqual(['Bob']);
+        expect(inbound?.mentionUserIds).toEqual(['dingtalk_bob']);
         expect(inbound?.chatType).toBe('group');
         expect(inbound?.quotedMessageId).toBe('quoted_1');
 
@@ -171,6 +173,33 @@ describe('message-context-store', () => {
         expect(listed[1]?.senderId).toBe('bot');
         expect(listed[1]?.senderName).toBe('OpenClaw');
         expect(listed[1]?.chatType).toBe('group');
+    });
+
+    it('hydrates mentionUserIds from persisted state after clearing the cache', () => {
+        upsertInboundMessageContext({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta_reload',
+            msgId: 'msg_meta_reload_1',
+            createdAt: 1000,
+            messageType: 'text',
+            text: 'first',
+            mentionUserIds: ['dingtalk_bob', 'dingtalk_bob', ''],
+            ttlMs: 60_000,
+            topic: null,
+        });
+
+        // Drop the in-memory cache so the next resolve must rehydrate from disk.
+        clearMessageContextCacheForTest();
+
+        const reloaded = resolveByMsgId({
+            storePath,
+            accountId: 'main',
+            conversationId: 'cid_meta_reload',
+            msgId: 'msg_meta_reload_1',
+        });
+
+        expect(reloaded?.mentionUserIds).toEqual(['dingtalk_bob']);
     });
 
     it('persists quotedRef on records and resolves inbound/outbound references', () => {
