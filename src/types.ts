@@ -228,6 +228,17 @@ export interface DocInfo {
 }
 
 /**
+ * Recursive element node of an interactiveCard `cardContent` payload.
+ * Real DingTalk quote callbacks carry card text as nested element trees
+ * (e.g. LIST -> RICHTEXT -> TEXT nodes) rather than a flat `text` field.
+ */
+export interface DingTalkCardContentNode {
+  elementType?: string;
+  value?: string;
+  children?: DingTalkCardContentNode[];
+}
+
+/**
  * DingTalk incoming message (Stream mode)
  */
 export interface DingTalkInboundMessage {
@@ -252,9 +263,13 @@ export interface DingTalkInboundMessage {
       createdAt?: number;
       content?: {
         text?: string;
+        /** Quoted text message body in real payloads (`msgType: "text"`). */
+        content?: string;
         downloadCode?: string;
         fileName?: string;
         biz_custom_action_url?: string;
+        /** interactiveCard quoted content as nested element tree. */
+        cardContent?: DingTalkCardContentNode[];
         richText?: Array<{
           msgType?: string;
           type?: string;
